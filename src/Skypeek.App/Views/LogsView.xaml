@@ -1,0 +1,84 @@
+<UserControl x:Class="Skypeek.App.Views.LogsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
+    <Grid Margin="0,8,0,0">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel>
+            <TextBlock x:Name="Heading" Text="Logs" FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource TextStrong}" />
+            <TextBlock x:Name="SubHeading" Style="{StaticResource Caption}"
+                       Text="Open logs from the Dashboard: select an ECS service, Elastic Beanstalk environment or RDS database and click “View logs”." />
+        </StackPanel>
+
+        <WrapPanel Grid.Row="1" Margin="0,8,0,0" x:Name="CloudWatchBar">
+            <TextBlock Text="Source" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,6,0" />
+            <ComboBox x:Name="Source" MinWidth="320" MaxWidth="520" SelectionChanged="OnSourceChanged" Margin="0,0,10,4" />
+            <TextBlock Text="Last" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,6,0" />
+            <ComboBox x:Name="Range" Width="110" DisplayMemberPath="Label" Margin="0,0,10,4" />
+            <ui:TextBox x:Name="Filter" Width="300" PlaceholderText="CloudWatch filter pattern, e.g. ERROR or &quot;Timeout&quot;" Margin="0,0,6,4"
+                        FontFamily="{StaticResource MonoFont}" KeyDown="OnFilterKeyDown" />
+            <ui:Button x:Name="LoadButton" Content="Load" Icon="{ui:SymbolIcon ArrowDownload24}" Appearance="Primary" Click="OnLoad" Margin="0,0,6,4" />
+            <CheckBox x:Name="Live" Content="Live tail (10 s)" Checked="OnLiveChanged" Unchecked="OnLiveChanged" Margin="0,0,6,4" />
+        </WrapPanel>
+
+        <Border Grid.Row="2" x:Name="EbBar" Style="{StaticResource Panel}" Padding="10,6" Margin="0,6,0,0" Visibility="Collapsed">
+            <WrapPanel>
+                <TextBlock x:Name="EbHint" Text="Instance logs (collected by Elastic Beanstalk; uses the elevated key, confirm each request)" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,10,0" />
+                <ui:Button Content="Request last 100 lines" Icon="{ui:SymbolIcon DocumentText24}" Click="OnRequestTail" Margin="0,0,6,0" x:Name="TailButton" />
+                <ui:Button Content="Request full bundle" Icon="{ui:SymbolIcon FolderZip24}" Click="OnRequestBundle" Margin="0,0,10,0" x:Name="BundleButton" />
+            </WrapPanel>
+        </Border>
+
+        <ItemsControl Grid.Row="3" x:Name="Bundles" Margin="0,6,0,0">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <StackPanel Orientation="Horizontal" Margin="0,2">
+                        <TextBlock Text="{Binding InstanceId}" FontFamily="{StaticResource MonoFont}" Style="{StaticResource Body}" Width="170" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding SampledAt, StringFormat=collected {0:g} (UTC)}" Style="{StaticResource Caption}" Width="210" VerticalAlignment="Center" />
+                        <ui:Button Content="Download bundle (zip) in browser" Padding="8,2" Click="OnOpenBundle" Tag="{Binding}" />
+                    </StackPanel>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <Border Grid.Row="4" Style="{StaticResource Panel}" Padding="2" Margin="0,6,0,0">
+            <ListView x:Name="Lines" Background="Transparent" BorderThickness="0" SelectionMode="Extended"
+                      VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                      ScrollViewer.HorizontalScrollBarVisibility="Disabled" KeyDown="OnLinesKeyDown">
+                <ListView.ItemTemplate>
+                    <DataTemplate>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="160" />
+                                <ColumnDefinition Width="170" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="{Binding TimeText}" Style="{StaticResource Caption}" FontFamily="{StaticResource MonoFont}" />
+                            <TextBlock Grid.Column="1" Text="{Binding StreamShort}" Style="{StaticResource Caption}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Stream}" />
+                            <TextBlock Grid.Column="2" Text="{Binding Message}" FontFamily="{StaticResource MonoFont}" FontSize="12"
+                                       Foreground="{StaticResource TextNormal}" TextWrapping="Wrap" />
+                        </Grid>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
+        </Border>
+
+        <DockPanel Grid.Row="5" Margin="2,6,0,0">
+            <ui:Button DockPanel.Dock="Right" Content="Copy shown" Icon="{ui:SymbolIcon Copy24}" Click="OnCopyAll" Padding="8,2" />
+            <ui:Button DockPanel.Dock="Right" Content="Copy for AI" Icon="{ui:SymbolIcon Sparkle24}" Click="OnCopyForAi" Padding="8,2" Margin="0,0,6,0"
+                       ToolTip="Copies an analysis prompt, the resource's current health state and the shown lines" />
+            <ui:Button DockPanel.Dock="Right" Content="Export for AI…" Icon="{ui:SymbolIcon ArrowExportUp24}" Click="OnExport" Padding="8,2" Margin="0,0,6,0"
+                       ToolTip="Saves the prompt, current health state and shown lines as Markdown or JSON Lines (the file is NOT encrypted)" />
+            <TextBlock x:Name="Status" Style="{StaticResource Caption}" VerticalAlignment="Center" TextWrapping="Wrap"
+                       Text="Log lines are shown here only; Skypeek never stores them." />
+        </DockPanel>
+    </Grid>
+</UserControl>

@@ -1,0 +1,26 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Skypeek.Core\Skypeek.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AWSSDK.CloudWatch" Version="4.0.105" />
+    <PackageReference Include="AWSSDK.CloudWatchLogs" Version="4.0.104.3" />
+    <PackageReference Include="AWSSDK.EC2" Version="4.0.124" />
+    <PackageReference Include="AWSSDK.ECS" Version="4.0.105.1" />
+    <PackageReference Include="AWSSDK.ElastiCache" Version="4.0.101" />
+    <PackageReference Include="AWSSDK.ElasticBeanstalk" Version="4.0.101" />
+    <PackageReference Include="AWSSDK.RDS" Version="4.0.105.3" />
+    <PackageReference Include="AWSSDK.SecretsManager" Version="4.0.100.14" />
+    <PackageReference Include="AWSSDK.SecurityToken" Version="4.0.101" />
+    <PackageReference Include="AWSSDK.SimpleSystemsManagement" Version="4.0.103.9" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

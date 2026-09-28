@@ -1,0 +1,65 @@
+using System.Windows;
+using System.Windows.Controls;
+using Skypeek.App.Infrastructure;
+using Skypeek.Core;
+
+namespace Skypeek.App.Views;
+
+/// <summary>
+/// Asked before every elevated call and every non-read action. Deny is the default button; irreversible actions also
+/// require typing or pasting a confirmation phrase (e.g. the instance ID) before Allow is enabled.
+/// </summary>
+public partial class PermissionDialog
+{
+    private readonly string? _confirmPhrase;
+
+    public PermissionDialog(ElevationRequest request)
+    {
+        InitializeComponent();
+        _confirmPhrase = request.ConfirmPhrase;
+        HeadingText.Text = request.Explanation is null ? "Use the elevated key?" : "Allow this action with the elevated key?";
+        var parts = new List<string>();
+        if (request.Explanation is { } why)
+            parts.Add(why);
+        parts.Add(request.Elevated
+            ? "This one call is signed with the elevated profile instead of the read-only one and recorded in the request log."
+            : "It is signed with the read-only profile and recorded in the request log.");
+        ExplanationText.Text = string.Join("\n\n", parts);
+        OperationText.Text = request.Operation;
+        ResourceText.Text = request.Resource;
+        TargetText.Text = $"{request.Target.DisplayName} · {request.Target.Region}";
+        ProfileText.Text = request.Profile;
+        AccountText.Text = $"{request.AccountId ?? "?"}{(request.RoleName is null ? "" : $" · role {request.RoleName}")}";
+
+        if (_confirmPhrase is not null)
+        {
+            ConfirmPanel.Visibility = Visibility.Visible;
+            PhraseText.Text = _confirmPhrase;
+            AllowButton.IsEnabled = false;
+            AllowButton.Appearance = Wpf.Ui.Controls.ControlAppearance.Danger;
+        }
+        Loaded += (_, _) => (_confirmPhrase is null ? (Control)DenyButton : ConfirmBox).Focus();
+    }
+
+    /// <summary>Copies the phrase and puts the cursor in the box, so Ctrl+V is all that is left.</summary>
+    private void OnCopyPhrase(object sender, RoutedEventArgs e)
+    {
+        if (_confirmPhrase is null)
+            return;
+        SecureClipboard.CopyPlain(_confirmPhrase);
+        CopyPhraseButton.Content = "Copied";
+        ConfirmBox.Focus();
+    }
+
+    private void OnConfirmChanged(object sender, TextChangedEventArgs e) =>
+        AllowButton.IsEnabled = string.Equals(ConfirmBox.Text.Trim(), _confirmPhrase, StringComparison.Ordinal);
+
+    private void OnAllow(object sender, RoutedEventArgs e)
+    {
+        if (_confirmPhrase is not null && ConfirmBox.Text.Trim() != _confirmPhrase)
+            return;
+        DialogResult = true;
+    }
+
+    private void OnDeny(object sender, RoutedEventArgs e) => DialogResult = false;
+}

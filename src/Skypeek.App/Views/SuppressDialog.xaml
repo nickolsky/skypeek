@@ -1,0 +1,25 @@
+<ui:FluentWindow x:Class="Skypeek.App.Views.SuppressDialog"
+                 xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+                 Title="Suppress alarm" Width="520" SizeToContent="Height" ResizeMode="NoResize" FontSize="12"
+                 WindowStartupLocation="CenterOwner" ExtendsContentIntoTitleBar="True" WindowBackdropType="Mica">
+    <StackPanel>
+        <ui:TitleBar Title="Suppress alarm" ShowMaximize="False" ShowMinimize="False" />
+        <StackPanel Margin="18,2,18,18">
+            <TextBlock Style="{StaticResource Body}" TextWrapping="Wrap"
+                       Text="Suppressed alarms stay visible (greyed out) but never count as problems, never turn the tray icon red and never raise notifications." />
+            <TextBlock Text="Alarm name or pattern (* and ? wildcards)" Style="{StaticResource Caption}" Margin="0,12,0,4" />
+            <ui:TextBox x:Name="Pattern" TextChanged="OnPatternChanged" FontFamily="{StaticResource MonoFont}" />
+            <TextBlock x:Name="Preview" Style="{StaticResource Caption}" Margin="0,4,0,0" TextWrapping="Wrap" />
+            <TextBlock Text="Scope" Style="{StaticResource Caption}" Margin="0,12,0,4" />
+            <RadioButton x:Name="ThisTarget" GroupName="scope" IsChecked="True" Checked="OnPatternChanged" />
+            <RadioButton x:Name="AllTargets" GroupName="scope" Content="All targets" Checked="OnPatternChanged" />
+            <TextBlock x:Name="Error" Foreground="#FFFF7B7F" Visibility="Collapsed" Margin="0,8,0,0" />
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+                <ui:Button Content="Cancel" Margin="0,0,8,0" IsCancel="True" Click="OnCancel" />
+                <ui:Button Content="Suppress" Appearance="Primary" IsDefault="True" Click="OnSave" />
+            </StackPanel>
+        </StackPanel>
+    </StackPanel>
+</ui:FluentWindow>

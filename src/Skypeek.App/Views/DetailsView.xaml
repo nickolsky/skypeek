@@ -1,0 +1,83 @@
+<UserControl x:Class="Skypeek.App.Views.DetailsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
+    <Grid>
+        <TextBlock x:Name="Placeholder" Text="Select a secret or parameter to see its details." Style="{StaticResource Body}"
+                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+
+        <ScrollViewer x:Name="DetailsBody" VerticalScrollBarVisibility="Auto" Visibility="Collapsed" Focusable="False">
+            <StackPanel Margin="0,0,18,12">
+                <StackPanel Orientation="Horizontal">
+                    <Border Style="{StaticResource Badge}">
+                        <TextBlock x:Name="KindText" FontSize="10" Foreground="{StaticResource TextStrong}" />
+                    </Border>
+                    <TextBlock x:Name="LocationText" Style="{StaticResource Caption}" VerticalAlignment="Center" />
+                </StackPanel>
+                <DockPanel Margin="0,4,0,0">
+                    <ui:Button DockPanel.Dock="Right" Icon="{ui:SymbolIcon Copy24}" Content="Name" Click="OnCopyName" Margin="6,0,0,0" />
+                    <ui:Button DockPanel.Dock="Right" x:Name="CopyArnButton" Icon="{ui:SymbolIcon Copy24}" Content="ARN" Click="OnCopyArn" Margin="6,0,0,0" />
+                    <TextBlock x:Name="NameText" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap" FontFamily="{StaticResource MonoFont}"
+                               Foreground="{StaticResource TextStrong}" />
+                </DockPanel>
+
+                <Border Style="{StaticResource Panel}" Margin="0,12,0,0">
+                    <StackPanel>
+                        <TextBlock Text="Value" Style="{StaticResource SectionHeader}" Margin="0,0,0,2" />
+                        <TextBlock x:Name="ValueHint" Style="{StaticResource Caption}" TextWrapping="Wrap" />
+                        <WrapPanel Margin="0,8,0,0">
+                            <ui:Button x:Name="RevealButton" Appearance="Primary" Icon="{ui:SymbolIcon Eye24}" Content="Reveal" Click="OnReveal" Margin="0,0,6,4" />
+                            <ui:Button x:Name="RevealElevatedButton" Icon="{ui:SymbolIcon ShieldKeyhole24}" Content="Reveal with elevated key" Click="OnRevealElevated" Margin="0,0,6,4" />
+                            <ui:Button x:Name="CopyValueButton" Icon="{ui:SymbolIcon Copy24}" Content="Copy value" Click="OnCopyValue" IsEnabled="False" Margin="0,0,6,4" />
+                            <ui:Button x:Name="HideButton" Icon="{ui:SymbolIcon EyeOff24}" Content="Hide" Click="OnHide" Visibility="Collapsed" Margin="0,0,6,4" />
+                            <TextBlock x:Name="Countdown" Style="{StaticResource Caption}" VerticalAlignment="Center" />
+                        </WrapPanel>
+
+                        <ui:ProgressRing x:Name="ValueBusy" IsIndeterminate="True" Width="20" Height="20" Margin="0,8,0,0" Visibility="Collapsed" HorizontalAlignment="Left" />
+                        <TextBlock x:Name="ValueError" Foreground="#FFFF7B7F" TextWrapping="Wrap" Margin="0,8,0,0" Visibility="Collapsed" />
+                        <TextBlock x:Name="MaskedValue" Text="••••••••••••" FontFamily="{StaticResource MonoFont}" Margin="0,8,0,0" FontSize="14" Foreground="{StaticResource TextNormal}" />
+
+                        <TextBox x:Name="ValueText" Margin="0,8,0,0" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True"
+                                 FontFamily="{StaticResource MonoFont}" MaxHeight="240" VerticalScrollBarVisibility="Auto" Visibility="Collapsed" />
+
+                        <DataGrid x:Name="JsonGrid" Margin="0,8,0,0" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column"
+                                  Visibility="Collapsed" MaxHeight="280" CanUserAddRows="False">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Key" Binding="{Binding Key}" Width="180" FontFamily="Cascadia Mono, Consolas" />
+                                <DataGridTextColumn Header="Value" Binding="{Binding Value}" Width="*" FontFamily="Cascadia Mono, Consolas" />
+                                <DataGridTemplateColumn Header="" Width="70">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <ui:Button Content="Copy" Padding="6,1" Click="OnCopyJsonValue" Tag="{Binding Value}" />
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </StackPanel>
+                </Border>
+
+                <DockPanel Margin="0,6,0,0">
+                    <ui:Button DockPanel.Dock="Right" x:Name="RefreshMetaButton" Icon="{ui:SymbolIcon ArrowClockwise24}" Content="Refresh metadata"
+                               Click="OnRefreshMetadata" VerticalAlignment="Bottom" />
+                    <TextBlock Text="Metadata" Style="{StaticResource SectionHeader}" />
+                </DockPanel>
+                <ItemsControl x:Name="Metadata">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Margin="0,2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="120" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="{Binding Key}" Style="{StaticResource Caption}" />
+                                <TextBox Grid.Column="1" Text="{Binding Value, Mode=OneWay}" IsReadOnly="True" BorderThickness="0" Background="Transparent"
+                                         Foreground="{StaticResource TextNormal}" TextWrapping="Wrap" Padding="0" MinHeight="0" FontSize="12" />
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

@@ -13,7 +13,10 @@ namespace Skypeek.App.Views;
 public partial class SettingsView
 {
     public sealed record IntervalOption(string Label, int Minutes);
-    public sealed record ProfileOption(string Label, string? Name);
+    /// <param name="SameKey">"Same key as read-only": resolves to the target's own profile.</param>
+    public sealed record ProfileOption(string Label, string? Name, bool SameKey = false);
+
+    private static readonly ProfileOption SameKeyOption = new("Same key as read-only (exception, not recommended)", null, SameKey: true);
     public sealed record ScopeOption(string Label, long? TargetId);
     public sealed record OverrideRow(string Key, string Label, string Values);
     public sealed record SuppressionRow(AlarmSuppression Rule, string Pattern, string Scope);
@@ -65,6 +68,12 @@ public partial class SettingsView
         CredentialsPath.Text = $"Credentials file: {session.Monitor.CredentialsPath} (watched for changes)";
         ShowNonReadOnly.Checked += (_, _) => LoadProfiles(true);
         ShowNonReadOnly.Unchecked += (_, _) => LoadProfiles(false);
+        // Same switch, next to the profile picker in Add targets (saved with Settings → General).
+        NewShowAll.IsChecked = ShowNonReadOnly.IsChecked;
+        NewShowAll.Checked += (_, _) => ShowNonReadOnly.IsChecked = true;
+        NewShowAll.Unchecked += (_, _) => ShowNonReadOnly.IsChecked = false;
+        ShowNonReadOnly.Checked += (_, _) => NewShowAll.IsChecked = true;
+        ShowNonReadOnly.Unchecked += (_, _) => NewShowAll.IsChecked = false;
     }
 
     /// <summary>Called when the tab becomes visible: pick up profiles, overrides and suppressions changed elsewhere.</summary>
@@ -132,7 +141,8 @@ public partial class SettingsView
 
     private void RefreshOverrides() =>
         OverrideList.ItemsSource = MergedOverrides()
-            .Select(kv => new OverrideRow(kv.Key, DescribeKey(kv.Key), $"CPU {kv.Value.CpuWarn}/{kv.Value.CpuCritical} · Mem {kv.Value.MemWarn}/{kv.Value.MemCritical}"))
+            .Select(kv => new OverrideRow(kv.Key, DescribeKey(kv.Key), $"CPU {kv.Value.CpuWarn}/{kv.Value.CpuCritical} · {(kv.Key.Contains(":rds:") ? "Conn" : "Mem")} {kv.Value.MemWarn}/{kv.Value.MemCritical}"
+                + (kv.Value.StorageWarn is { } sw ? $" · Storage {sw}/{kv.Value.StorageCritical}" : "")))
             .OrderBy(r => r.Label)
             .ToList();
 
@@ -163,7 +173,7 @@ public partial class SettingsView
         NewProfile.ItemsSource = readOnly;
         NewProfile.SelectedItem = readOnly.FirstOrDefault(p => p.Name == selected) ?? readOnly.FirstOrDefault();
 
-        List<ProfileOption> elevated = [new("(none)", null), .. all.Where(p => !p.IsReadOnly).Select(p => new ProfileOption(p.Name, p.Name)),
+        List<ProfileOption> elevated = [new("(none)", null), SameKeyOption, .. all.Where(p => !p.IsReadOnly).Select(p => new ProfileOption(p.Name, p.Name)),
             .. all.Where(p => p.IsReadOnly).Select(p => new ProfileOption($"{p.Name} (read-only role)", p.Name))];
         NewElevated.ItemsSource = elevated;
         NewElevated.SelectedIndex = 0;
@@ -175,6 +185,11 @@ public partial class SettingsView
     private void SelectElevated(string? name)
     {
         var options = ElevatedProfile.ItemsSource as IEnumerable<ProfileOption> ?? [];
+        if (_editing is { UsesSameKey: true } && name == _editing.ProfileName)
+        {
+            ElevatedProfile.SelectedItem = options.FirstOrDefault(o => o.SameKey);
+            return;
+        }
         var match = options.FirstOrDefault(o => o.Name == name);
         if (match is null && name is not null)
         {
@@ -217,7 +232,10 @@ public partial class SettingsView
     {
         if (NewProfile.SelectedItem is not ProfileCredentials profile)
             return;
-        var elevated = (NewElevated.SelectedItem as ProfileOption)?.Name;
+        var option = NewElevated.SelectedItem as ProfileOption;
+        var elevated = option?.SameKey == true ? profile.Name : option?.Name;
+        if (elevated == profile.Name ? !ConfirmSameKey(profile.Name) : !profile.IsReadOnly && !ConfirmNonReadOnly(profile.Name))
+            return;
         Target? last = null;
         foreach (var region in NewRegions.SelectedItems.Cast<string>())
         {
@@ -297,6 +315,46 @@ public partial class SettingsView
             ApplyEditor();
     }
 
+    /// <summary>Choosing the read-only profile as the elevated one too is allowed only after an explicit warning.</summary>
+    private void OnElevatedChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loadingEditor || _editing is not { } t)
+            return;
+        var option = ElevatedProfile.SelectedItem as ProfileOption;
+        var same = option?.SameKey == true || option?.Name == t.ProfileName;
+        if (same && !t.UsesSameKey && !ConfirmSameKey(t.ProfileName))
+        {
+            _loadingEditor = true;
+            SelectElevated(t.ElevatedProfileName);
+            _loadingEditor = false;
+            return;
+        }
+        if (option is { SameKey: false } && option.Name == t.ProfileName)
+        {
+            // Same profile picked by name: show it as the explicit exception.
+            _loadingEditor = true;
+            ElevatedProfile.SelectedItem = (ElevatedProfile.ItemsSource as IEnumerable<ProfileOption>)?.FirstOrDefault(o => o.SameKey);
+            _loadingEditor = false;
+        }
+        ApplyEditor();
+    }
+
+    private bool ConfirmSameKey(string profile) => ConfirmDialog.Ask(Window.GetWindow(this),
+        "Use the same key for read-only and elevated access?",
+        $"{profile} will sign every call: background refresh, and also the elevated actions (reveal with the elevated key, EB log requests, " +
+        "deploy, restart, reboot and terminate). You lose the separation between a key that can only read and one that can change things: " +
+        "if this key has write permissions, a bug or a mistaken approval uses them directly.\n\n" +
+        "Skypeek still blocks every call that is not on its allowlist and still asks before each elevated action. " +
+        "Use this only when the account has no separate read-only role.",
+        "Use the same key", danger: true);
+
+    private bool ConfirmNonReadOnly(string profile) => ConfirmDialog.Ask(Window.GetWindow(this),
+        "Use a non-read-only role as the read-only key?",
+        $"{profile} is not a read-only role (for example AdministratorAccess). Every call for these targets, including background refresh " +
+        "every few minutes, would be signed with a key that can change things.\n\n" +
+        "Skypeek still sends only the calls on its read allowlist. Prefer a ReadOnly role when the account has one.",
+        "Use it", danger: true);
+
     /// <summary>Writes editor controls into the working copy of the selected target.</summary>
     private void ApplyEditor()
     {
@@ -313,10 +371,9 @@ public partial class SettingsView
             t.Region = region;
         t.Enabled = TargetEnabled.IsChecked == true;
 
-        var elevated = (ElevatedProfile.SelectedItem as ProfileOption)?.Name;
-        if (elevated == t.ProfileName)
-            errors.Add("The elevated profile must differ from the read-only profile.");
-        else if (elevated != t.ElevatedProfileName)
+        var option = ElevatedProfile.SelectedItem as ProfileOption;
+        var elevated = option?.SameKey == true ? t.ProfileName : option?.Name;
+        if (elevated != t.ElevatedProfileName)
         {
             t.ElevatedProfileName = elevated;
             if (ElevatedForAll.IsChecked == true)

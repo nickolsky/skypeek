@@ -28,8 +28,22 @@
                         <Border DockPanel.Dock="Bottom" Style="{StaticResource Panel}" Margin="0,10,0,0">
                             <StackPanel>
                                 <TextBlock Text="Add targets" FontWeight="SemiBold" Foreground="{StaticResource TextStrong}" />
-                                <TextBlock Text="Read-only profile" Style="{StaticResource FieldLabel}" />
-                                <ComboBox x:Name="NewProfile" DisplayMemberPath="Name" SelectionChanged="OnNewProfileChanged" />
+                                <DockPanel>
+                                    <CheckBox x:Name="NewShowAll" DockPanel.Dock="Right" Content="All profiles" VerticalAlignment="Bottom"
+                                              ToolTip="Also list profiles whose role is not read-only (e.g. AdministratorAccess)" />
+                                    <TextBlock Text="Read-only profile" Style="{StaticResource FieldLabel}" />
+                                </DockPanel>
+                                <ComboBox x:Name="NewProfile" SelectionChanged="OnNewProfileChanged">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="{Binding Name}" />
+                                                <TextBlock Text="  ⚠ not a read-only role" Foreground="#FFFFB86B"
+                                                           Visibility="{Binding IsReadOnly, Converter={StaticResource InverseBoolToVisibility}}" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
                                 <TextBlock Text="Elevated profile (optional, used on demand after approval)" Style="{StaticResource FieldLabel}" />
                                 <ComboBox x:Name="NewElevated" DisplayMemberPath="Label" />
                                 <TextBlock Text="Regions (select one or more)" Style="{StaticResource FieldLabel}" />
@@ -89,7 +103,7 @@
                             <TextBlock x:Name="ProfileText" Style="{StaticResource Body}" TextWrapping="Wrap" />
                             <TextBlock Text="Elevated profile — used only when you ask (e.g. to read a secret the read-only role cannot), with a permission prompt every time"
                                        Style="{StaticResource FieldLabel}" TextWrapping="Wrap" />
-                            <ComboBox x:Name="ElevatedProfile" DisplayMemberPath="Label" SelectionChanged="OnEditorChanged" MaxWidth="460" HorizontalAlignment="Left" MinWidth="340" />
+                            <ComboBox x:Name="ElevatedProfile" DisplayMemberPath="Label" SelectionChanged="OnElevatedChanged" MaxWidth="460" HorizontalAlignment="Left" MinWidth="340" />
                             <CheckBox x:Name="ElevatedForAll" Content="Use the same elevated profile for every target with this read-only profile" Margin="0,6,0,0" IsChecked="True" />
 
                             <TextBlock Text="Features" Style="{StaticResource FieldLabel}" />

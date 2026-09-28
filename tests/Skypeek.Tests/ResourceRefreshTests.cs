@@ -28,6 +28,9 @@ public class ResourceRefreshTests
     {
         public int Running { get; set; } = 2;
         public string DbStatus { get; set; } = "available";
+        public double FreeStorageGiB { get; set; } = 25;
+        /// <summary>One point by default; more (one per minute) to exceed the sustained-minutes window.</summary>
+        public int PointsPerMetric { get; set; } = 1;
         public List<string> Calls { get; } = [];
 
         public Task<RdsInventory> GetRdsAsync(Target target, DateTime eventsSince, CancellationToken ct, string? onlyInstance = null, string? onlyCluster = null)
@@ -63,7 +66,9 @@ public class ResourceRefreshTests
             Calls.Add($"metrics:{queries.Count}");
             // 55 for percentages and connections; 25 GiB free of 100 for storage.
             IReadOnlyDictionary<string, IReadOnlyList<MetricPoint>> data = queries.ToDictionary(q => q.Id,
-                q => (IReadOnlyList<MetricPoint>)[new MetricPoint(end.AddMinutes(-1), q.MetricName == "FreeStorageSpace" ? 25.0 * (1L << 30) : 55)]);
+                q => (IReadOnlyList<MetricPoint>)Enumerable.Range(1, PointsPerMetric)
+                    .Select(i => new MetricPoint(end.AddMinutes(-i), q.MetricName == "FreeStorageSpace" ? FreeStorageGiB * (1L << 30) : 55))
+                    .ToList());
             return Task.FromResult(data);
         }
 
@@ -118,6 +123,29 @@ public class ResourceRefreshTests
         // 55 of max_connections 200 = 27.5%.
         Assert.Equal(27.5, after.Memory!.Current!.Value, precision: 6);
         Assert.Equal(75, after.StorageUsed?.Current);
+    }
+
+    [Fact]
+    public async Task Per_database_storage_thresholds_override_the_global_ones()
+    {
+        var stores = new MemoryStores();
+        var settings = new SettingsService(stores);
+        var gateway = new FakeGateway { FreeStorageGiB = 11, PointsPerMetric = 20 };
+        var health = new HealthService(gateway, stores, settings, new Quiet());
+        var target = stores.Targets[0];
+        target.EcsEnabled = false;
+        target.CacheEnabled = false;
+
+        await health.PollHealthAsync(target, CancellationToken.None);
+        await health.RefreshResourceAsync(target, health.Get(1)!.Rds.Single(), CancellationToken.None);
+        var db = health.Get(1)!.Rds.Single();
+        // 89% used for 20 min, over the global 80% warning.
+        Assert.Equal(HealthLevel.Warn, db.Level);
+
+        settings.Settings.ResourceThresholds[db.ResourceKey] = new ThresholdSettings(80, 90, 80, 95) { StorageWarn = 92, StorageCritical = 97 };
+        health.Reevaluate();
+        Assert.Equal(HealthLevel.Ok, health.Get(1)!.Rds.Single().Level);
+        Assert.Equal(HealthLevel.Ok, health.Get(1)!.Rds.Single().StorageUsed!.Level);
     }
 
     [Fact]

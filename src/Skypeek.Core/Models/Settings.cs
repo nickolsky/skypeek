@@ -4,6 +4,10 @@ namespace Skypeek.Core.Models;
 
 public sealed record ThresholdSettings(double CpuWarn, double CpuCritical, double MemWarn, double MemCritical)
 {
+    /// <summary>RDS only: used storage in %; null keeps the global RDS storage thresholds.</summary>
+    public double? StorageWarn { get; init; }
+    public double? StorageCritical { get; init; }
+
     public static ThresholdSettings Default => new(80, 90, 80, 90);
 }
 
@@ -77,6 +81,12 @@ public sealed class Target
 
     /// <summary>Optional profile with more permissions, used only on demand after the user approves each call.</summary>
     public string? ElevatedProfileName { get; set; }
+
+    /// <summary>
+    /// Exception the user confirmed in Settings: one profile serves as both keys (e.g. an account with only an admin
+    /// role). Elevated calls still need approval each time; the read-only allowlist still applies to every call.
+    /// </summary>
+    [JsonIgnore] public bool UsesSameKey => ElevatedProfileName is { Length: > 0 } e && e == ProfileName;
 
     public string Region { get; set; } = "us-east-1";
     public string Alias { get; set; } = "";

@@ -392,7 +392,8 @@ public sealed class HealthService
                 var th = HealthRules.ResolveThresholds(settings, target, db);
                 if (db.Cpu is { } cpu) db.Cpu = HealthRules.EvaluateMetric(cpu.MetricName, cpu.Points, th.CpuWarn, th.CpuCritical, settings.SustainedMinutes, now);
                 if (db.Memory is { } conn) db.Memory = HealthRules.EvaluateMetric(conn.MetricName, conn.Points, th.MemWarn, th.MemCritical, settings.SustainedMinutes, now);
-                if (db.StorageUsed is { } st) db.StorageUsed = HealthRules.EvaluateMetric(st.MetricName, st.Points, settings.RdsStorageWarn, settings.RdsStorageCritical, settings.SustainedMinutes, now);
+                var (storageWarn, storageCritical) = HealthRules.ResolveStorageThresholds(settings, db.ResourceKey);
+                if (db.StorageUsed is { } st) db.StorageUsed = HealthRules.EvaluateMetric(st.MetricName, st.Points, storageWarn, storageCritical, settings.SustainedMinutes, now);
             }
             foreach (var cache in h.Caches)
             {
@@ -740,8 +741,9 @@ public sealed class HealthService
                 if (db.Snapshot.AllocatedStorageGb is { } gb and > 0)
                 {
                     var allocated = gb * (double)(1L << 30);
+                    var (storageWarn, storageCritical) = HealthRules.ResolveStorageThresholds(settings, db.ResourceKey);
                     db.StorageUsed = HealthRules.EvaluateMetric("Storage", points.Select(p => p with { Value = Math.Max(0, 100 - p.Value / allocated * 100) }).ToList(),
-                        settings.RdsStorageWarn, settings.RdsStorageCritical, settings.SustainedMinutes, now);
+                        storageWarn, storageCritical, settings.SustainedMinutes, now);
                 }
                 break;
             case MetricSlot.RdsFreeableMemory:
@@ -822,7 +824,7 @@ public sealed class HealthService
         foreach (var eb in health.Eb)
             HealthRules.ApplyCauseSuppression(eb, target.Id, settings, now);
         foreach (var r in health.AllResources)
-            HealthRules.Recompute(r, HealthRules.ResolveThresholds(settings, target, r), settings.SustainedMinutes, (settings.RdsStorageWarn, settings.RdsStorageCritical));
+            HealthRules.Recompute(r, HealthRules.ResolveThresholds(settings, target, r), settings.SustainedMinutes, HealthRules.ResolveStorageThresholds(settings, r.ResourceKey));
     }
 
     private void Commit(Target target, TargetHealth health, bool notify = true)

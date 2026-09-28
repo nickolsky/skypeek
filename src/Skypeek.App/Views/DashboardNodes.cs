@@ -35,6 +35,8 @@ public sealed partial class DashNode : ObservableObject
     public bool Dim { get; init; }
     public int ProblemCount { get; set; }
     public object? Payload { get; init; }
+    /// <summary>Small usage bars shown after the title (CPU, memory, connections, disk).</summary>
+    public IReadOnlyList<Gauge> Gauges { get; init; } = [];
     public ObservableCollection<DashNode> Children { get; } = new();
 
     [ObservableProperty] private bool _isExpanded;
@@ -46,6 +48,20 @@ public sealed partial class DashNode : ObservableObject
 
     /// <summary>Accessible name of the tree item.</summary>
     public override string ToString() => Title;
+}
+
+/// <param name="Percent">Bar fill 0–100; null shows only the text.</param>
+public sealed record Gauge(string Label, double? Percent, string Text, HealthLevel Level)
+{
+    public bool HasBar => Percent is not null;
+
+    public static Gauge? For(string label, MetricEvaluation? metric, string? text = null) =>
+        metric?.Current is { } value ? new Gauge(label, value, text ?? $"{value:0}%", Of(metric)) : null;
+
+    /// <summary>Only threshold breaches colour a bar; otherwise it is green.</summary>
+    public static HealthLevel Of(MetricEvaluation? metric) => metric?.Level is HealthLevel.Warn or HealthLevel.Critical ? metric.Level : HealthLevel.Ok;
+
+    public static IReadOnlyList<Gauge> List(params Gauge?[] gauges) => gauges.Where(g => g is not null).ToList()!;
 }
 
 /// <summary>Details panel content for a target node.</summary>
@@ -224,7 +240,7 @@ public static class DashboardTreeBuilder
             Subtitle = (byApplication ? "" : $"{env.Snapshot.ApplicationName} · ")
                        + (env.Level >= HealthLevel.Warn ? env.ReasonText : $"{env.Snapshot.Health} · {env.Snapshot.Status} · {env.Snapshot.VersionLabel}")
                        + (env.Snapshot.IsLatestVersion == false ? " · not latest version" : ""),
-            Right = env.Cpu?.Current is { } cpu ? $"CPU {cpu:0}%" : null,
+            Gauges = Gauge.List(Gauge.For("CPU", env.Cpu), Gauge.For("Mem", env.Memory)),
             Level = env.Level,
             ProblemCount = env.Level >= HealthLevel.Warn ? 1 : 0,
             Payload = env,
@@ -308,7 +324,7 @@ public static class DashboardTreeBuilder
                 Subtitle = db.Level >= HealthLevel.Warn ? db.ReasonText
                     : $"{db.Snapshot.Role} · {db.Snapshot.EngineText} · {db.Snapshot.InstanceClass} · {db.Snapshot.Status}"
                       + (db.Snapshot.ReplicaSource is { } src && !byId.ContainsKey(src) ? $" · replica of {src}" : ""),
-                Right = RdsMetrics(db),
+                Gauges = RdsGauges(db),
                 Level = db.Level,
                 ProblemCount = db.Level >= HealthLevel.Warn ? 1 : 0,
                 Payload = db,
@@ -367,13 +383,16 @@ public static class DashboardTreeBuilder
         return group;
     }
 
-    private static string? RdsMetrics(RdsInstanceStatus db)
+    private static IReadOnlyList<Gauge> RdsGauges(RdsInstanceStatus db)
     {
-        var parts = new List<string>();
-        if (db.Cpu?.Current is { } c) parts.Add($"CPU {c:0}%");
-        if (db.Connections?.Current is { } n) parts.Add($"{n:0} conn");
-        if (db.StorageUsed?.Current is { } s) parts.Add($"disk {s:0}%");
-        return parts.Count == 0 ? null : string.Join(" · ", parts);
+        // Connections fill against max_connections when it is known; otherwise just the count.
+        var connections = db.Connections?.Current is not { } count ? null
+            : db.Memory?.Current is { } percent ? new Gauge("Conn", percent, $"{count:0}", Gauge.Of(db.Memory))
+            : new Gauge("Conn", null, $"{count:0}", HealthLevel.Ok);
+        var disk = db.StorageUsed?.Current is { } used
+            ? new Gauge("Disk", used, $"{RdsInstanceStatus.FormatBytes(db.FreeStorageBytes)} free / {db.SizeText}", Gauge.Of(db.StorageUsed))
+            : null;
+        return Gauge.List(Gauge.For("CPU", db.Cpu), connections, disk);
     }
 
     private static DashNode CacheGroup(Target target, TargetHealth health, bool problemsOnly)
@@ -398,7 +417,7 @@ public static class DashboardTreeBuilder
                 Subtitle = cache.Level >= HealthLevel.Warn ? cache.ReasonText
                     : $"{snapshot.EngineText} · {snapshot.NodeType} · {snapshot.Status}"
                       + (snapshot.Kind == CacheKind.Serverless ? " · serverless" : snapshot.ClusterMode ? $" · {snapshot.Shards.Count} shard(s)" : $" · {snapshot.Nodes.Count()} node(s)"),
-                Right = Metrics(cache),
+                Gauges = Gauge.List(Gauge.For("CPU", cache.Cpu), Gauge.For("Mem", cache.Memory)),
                 Level = cache.Level,
                 ProblemCount = cache.Level >= HealthLevel.Warn ? 1 : 0,
                 Payload = cache,
@@ -410,7 +429,7 @@ public static class DashboardTreeBuilder
                 Kind = NodeKind.CacheNode,
                 Title = view.Node.ClusterId,
                 Subtitle = $"{view.Node.Role ?? "node"} · {view.Node.Status}{(view.Node.AvailabilityZone is null ? "" : $" · {view.Node.AvailabilityZone}")}",
-                Right = view.Metric?.Cpu?.Current is { } cpu ? $"CPU {cpu:0}%" : null,
+                Gauges = Gauge.List(Gauge.For("CPU", view.Metric?.Cpu), Gauge.For("Mem", view.Metric?.Memory)),
                 Level = view.Level,
                 Payload = new CacheNodeDetail(cache, view),
             };
@@ -471,7 +490,7 @@ public static class DashboardTreeBuilder
                     Kind = NodeKind.EcsService,
                     Title = svc.Snapshot.ServiceName,
                     Subtitle = svc.Level >= HealthLevel.Warn ? svc.ReasonText : $"{svc.Snapshot.Running}/{svc.Snapshot.Desired} tasks",
-                    Right = Metrics(svc),
+                    Gauges = Gauge.List(Gauge.For("CPU", svc.Cpu), Gauge.For("Mem", svc.Memory)),
                     Level = svc.Level,
                     ProblemCount = svc.Level >= HealthLevel.Warn ? 1 : 0,
                     Payload = svc,
@@ -527,14 +546,6 @@ public static class DashboardTreeBuilder
         return group;
     }
 
-    private static string? Metrics(ResourceStatus r)
-    {
-        var parts = new List<string>();
-        if (r.Cpu?.Current is { } c) parts.Add($"CPU {c:0}%");
-        if (r.Memory?.Current is { } m) parts.Add($"Mem {m:0}%");
-        return parts.Count == 0 ? null : string.Join(" · ", parts);
-    }
-
     private static void Summarize(DashNode node, int? total = null, string? extra = null)
     {
         if (node.Children.Count > 0)
@@ -573,7 +584,9 @@ public static class DashboardTreeBuilder
             ReadOnlyProfile = target.ProfileName,
             ReadOnlyState = Describe(cred),
             ElevatedProfile = target.ElevatedProfileName,
-            ElevatedState = elevated is null ? null : Describe(elevated),
+            ElevatedState = elevated is null ? null
+                : target.UsesSameKey ? $"⚠ same key as read-only (confirmed exception) · {Describe(elevated)}"
+                : Describe(elevated),
             Catalog = Job(JobKind.Catalog),
             Health = Job(JobKind.Health),
             Metrics = Job(JobKind.Metrics),

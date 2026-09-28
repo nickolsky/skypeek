@@ -323,7 +323,8 @@ public partial class DashboardView
             CacheStatus => ("Engine CPU", "Memory used"),
             _ => ("CPU", "Memory"),
         };
-        var dialog = new ThresholdDialog($"{target.DisplayName}: {r.DisplayName}", current, settings.ResourceThresholds.ContainsKey(r.ResourceKey), cpuLabel, memoryLabel)
+        (double, double)? storage = r is RdsInstanceStatus { Snapshot.IsAurora: false } ? HealthRules.ResolveStorageThresholds(settings, r.ResourceKey) : null;
+        var dialog = new ThresholdDialog($"{target.DisplayName}: {r.DisplayName}", current, settings.ResourceThresholds.ContainsKey(r.ResourceKey), cpuLabel, memoryLabel, storage)
         {
             Owner = Window.GetWindow(this),
         };

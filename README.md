@@ -40,6 +40,8 @@ Each target has a **read-only profile**, used for everything including backgroun
 - Every elevated call shows a permission dialog naming the operation, resource and profile. **Deny** is the default button.
 - Elevated calls go through the same read-only allowlist, so they can't write.
 - The request log marks elevated calls; filter them with **Elevated key only**.
+- **Exception: one key for both.** For an account with no separate read-only role, choose **Same key as read-only** as the elevated profile. You confirm a warning first, the dashboard and every permission prompt flag it, and elevated actions still ask each time; the read allowlist still applies to every call.
+- **Add targets** lists only `*ReadOnly*` roles by default; tick **All profiles** to pick another role (e.g. `AWSAdministratorAccess`) as the read-only key, after a warning.
 
 ## Logs and root cause
 
@@ -113,7 +115,7 @@ Exported files are **not encrypted**; delete them when you're done.
 - **Suppressions** in the dashboard toolbar lists every alarm and cause rule with Remove; they are also in Settings → Suppressions & thresholds.
 - Auto-scaling target-tracking alarms (`TargetTracking-*`) are ignored by default, because they sit in ALARM whenever a service is scaled in or out.
 
-Only profiles whose role contains `ReadOnly` are listed. Settings → General can show the others (e.g. `AWSAdministratorAccess`); they get a warning.
+Only profiles whose role contains `ReadOnly` are listed as read-only keys unless you tick **All profiles** in Add targets (or the same switch in Settings → General); other roles are marked with a warning.
 
 ## Hotkeys
 

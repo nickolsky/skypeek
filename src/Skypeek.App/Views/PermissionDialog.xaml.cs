@@ -22,7 +22,9 @@ public partial class PermissionDialog
         if (request.Explanation is { } why)
             parts.Add(why);
         parts.Add(request.Elevated
-            ? "This one call is signed with the elevated profile instead of the read-only one and recorded in the request log."
+            ? request.Target.UsesSameKey
+                ? "⚠ This target uses the SAME key for read-only and elevated access (an exception you confirmed in Settings). The call is recorded in the request log."
+                : "This one call is signed with the elevated profile instead of the read-only one and recorded in the request log."
             : "It is signed with the read-only profile and recorded in the request log.");
         ExplanationText.Text = string.Join("\n\n", parts);
         OperationText.Text = request.Operation;

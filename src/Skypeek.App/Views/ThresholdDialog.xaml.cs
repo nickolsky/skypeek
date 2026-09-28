@@ -6,8 +6,12 @@ namespace Skypeek.App.Views;
 
 public partial class ThresholdDialog
 {
+    private readonly bool _withStorage;
+
     /// <param name="memoryLabel">What the second pair measures (e.g. "Connections % of max" for RDS).</param>
-    public ThresholdDialog(string resource, ThresholdSettings current, bool hasOverride, string cpuLabel = "CPU", string memoryLabel = "Memory")
+    /// <param name="storage">RDS: the used-storage thresholds in effect; shows a third row.</param>
+    public ThresholdDialog(string resource, ThresholdSettings current, bool hasOverride, string cpuLabel = "CPU", string memoryLabel = "Memory",
+        (double Warn, double Critical)? storage = null)
     {
         InitializeComponent();
         ResourceText.Text = resource;
@@ -18,6 +22,15 @@ public partial class ThresholdDialog
         MemWarn.Text = current.MemWarn.ToString(CultureInfo.InvariantCulture);
         MemCrit.Text = current.MemCritical.ToString(CultureInfo.InvariantCulture);
         ClearButton.Visibility = hasOverride ? Visibility.Visible : Visibility.Collapsed;
+        if (storage is { } st)
+        {
+            _withStorage = true;
+            StorageLabel.Visibility = StorageWarn.Visibility = StorageCrit.Visibility = Visibility.Visible;
+            StorageWarn.Text = st.Warn.ToString(CultureInfo.InvariantCulture);
+            StorageCrit.Text = st.Critical.ToString(CultureInfo.InvariantCulture);
+        }
+        SourceInitialized += (_, _) => ConfirmDialog.RoundCorners(this);
+        Loaded += (_, _) => CpuWarn.Focus();
     }
 
     /// <summary>New override, or null to remove the override.</summary>
@@ -48,12 +61,27 @@ public partial class ThresholdDialog
     {
         if (!TryParseThresholds(CpuWarn.Text, CpuCrit.Text, MemWarn.Text, MemCrit.Text, out var result, out var error))
         {
-            Error.Text = error;
-            Error.Visibility = Visibility.Visible;
+            ShowError(error);
             return;
+        }
+        if (_withStorage)
+        {
+            // Same rules as a CPU pair: 1–100, warning not above critical.
+            if (!TryParseThresholds(StorageWarn.Text, StorageCrit.Text, StorageWarn.Text, StorageCrit.Text, out var storage, out var storageError))
+            {
+                ShowError($"Storage: {storageError}");
+                return;
+            }
+            result = result with { StorageWarn = storage.CpuWarn, StorageCritical = storage.CpuCritical };
         }
         Result = result;
         DialogResult = true;
+    }
+
+    private void ShowError(string? error)
+    {
+        Error.Text = error;
+        Error.Visibility = Visibility.Visible;
     }
 
     private void OnClear(object sender, RoutedEventArgs e)

@@ -135,10 +135,18 @@ public sealed class RdsInstanceStatus : ResourceStatus
     [JsonIgnore]
     public string ConnectionsText => Connections?.Current is not { } c ? "n/a"
         : Snapshot.MaxConnections is { } max ? $"{c:0} of {max:N0} ({c / max * 100:0}%) · peak {Connections.Peak:0}" : $"{c:0} · peak {Connections.Peak:0} (max unknown)";
+    [JsonIgnore] public double? AllocatedBytes => Snapshot.AllocatedStorageGb is { } gb ? gb * (double)(1L << 30) : null;
+    [JsonIgnore] public double? UsedStorageBytes => AllocatedBytes is { } total && FreeStorageBytes is { } free ? Math.Max(0, total - free) : null;
+    [JsonIgnore] public string SizeText => Snapshot.IsAurora ? "Aurora" : FormatBytes(AllocatedBytes);
     [JsonIgnore]
     public string StorageText => Snapshot.IsAurora ? "Aurora (grows automatically)"
-        : StorageUsed?.Current is { } used ? $"{used:0}% used of {Snapshot.AllocatedStorageGb} GiB ({FormatBytes(FreeStorageBytes)} free)"
-        : Snapshot.AllocatedStorageGb is { } gb ? $"{gb} GiB" : "n/a";
+        : StorageUsed?.Current is { } used ? $"{used:0}% used · {FormatBytes(UsedStorageBytes)} of {FormatBytes(AllocatedBytes)} · {FormatBytes(FreeStorageBytes)} free"
+        : AllocatedBytes is { } total ? $"{FormatBytes(total)} allocated" : "n/a";
+    /// <summary>Storage autoscaling limit, when set above the allocated size.</summary>
+    [JsonIgnore]
+    public string? StorageAutoscaling => Snapshot.MaxAllocatedStorageGb is { } max && max > (Snapshot.AllocatedStorageGb ?? 0)
+        ? $"autoscaling up to {FormatBytes(max * (double)(1L << 30))}{(Snapshot.StorageType is { } type ? $" · {type}" : "")}"
+        : Snapshot.StorageType is { } t ? $"{t} · no storage autoscaling" : null;
     [JsonIgnore] public string FreeableMemoryText => FreeableMemoryBytes is null ? "n/a" : $"{FormatBytes(FreeableMemoryBytes)} free";
     [JsonIgnore] public string? ReplicaLagText => ReplicaLagSeconds is { } s ? $"{s:0.#} s" : null;
 

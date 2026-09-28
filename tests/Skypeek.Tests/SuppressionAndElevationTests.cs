@@ -195,6 +195,23 @@ public class ElevationTests
     }
 
     [Fact]
+    public async Task Same_key_for_both_still_asks_before_every_elevated_action()
+    {
+        using var dir = new TempDir();
+        var monitor = await Monitor(dir);
+        var approver = new Approver(false);
+        using var factory = new AwsClientFactory();
+        var gateway = new AwsGateway(monitor, factory, new CapturingSink(), approver);
+        var sameKey = new Target { Id = 4, ProfileName = CredentialsFile.Profile, ElevatedProfileName = CredentialsFile.Profile, Region = "us-east-1" };
+        Assert.True(sameKey.UsesSameKey);
+
+        await Assert.ThrowsAsync<ElevationDeniedException>(() => gateway.RequestEbLogsAsync(sameKey, "e-1", "api-prod", bundle: false, CancellationToken.None));
+        var request = Assert.Single(approver.Requests);
+        Assert.True(request.Elevated);
+        Assert.Equal(CredentialsFile.Profile, request.Profile);
+    }
+
+    [Fact]
     public async Task Normal_calls_never_ask_for_approval()
     {
         using var dir = new TempDir();

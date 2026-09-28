@@ -21,7 +21,7 @@ public partial class ConfirmDialog
             OkButton.IsDefault = false;
             CancelButton.IsDefault = true;
         }
-        SourceInitialized += (_, _) => RoundCorners();
+        SourceInitialized += (_, _) => RoundCorners(this);
         Loaded += (_, _) => (danger ? CancelButton : OkButton).Focus();
     }
 
@@ -39,12 +39,12 @@ public partial class ConfirmDialog
 
     private void OnCancel(object sender, RoutedEventArgs e) => DialogResult = false;
 
-    /// <summary>Windows 11 rounded corners and shadow for the borderless window (ignored on Windows 10).</summary>
-    private void RoundCorners()
+    /// <summary>Windows 11 rounded corners and shadow for a borderless dialog (ignored on Windows 10).</summary>
+    public static void RoundCorners(Window window)
     {
         const int DWMWA_WINDOW_CORNER_PREFERENCE = 33, DWMWCP_ROUND = 2;
         var preference = DWMWCP_ROUND;
-        _ = DwmSetWindowAttribute(new WindowInteropHelper(this).Handle, DWMWA_WINDOW_CORNER_PREFERENCE, ref preference, sizeof(int));
+        _ = DwmSetWindowAttribute(new WindowInteropHelper(window).Handle, DWMWA_WINDOW_CORNER_PREFERENCE, ref preference, sizeof(int));
     }
 
     [DllImport("dwmapi.dll")]

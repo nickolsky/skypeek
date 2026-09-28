@@ -192,6 +192,12 @@ public static partial class HealthRules
         _ => settings.CacheThresholds,
     };
 
+    /// <summary>RDS used-storage thresholds: the resource's override when it sets them, else the global ones.</summary>
+    public static (double Warn, double Critical) ResolveStorageThresholds(AppSettings settings, string resourceKey) =>
+        settings.ResourceThresholds.TryGetValue(resourceKey, out var perResource) && perResource.StorageWarn is { } warn && perResource.StorageCritical is { } critical
+            ? (warn, critical)
+            : (settings.RdsStorageWarn, settings.RdsStorageCritical);
+
     public static bool IsCpuOrMemoryMetric(string? metricName) =>
         metricName is not null &&
         (metricName.Contains("cpu", StringComparison.OrdinalIgnoreCase) || metricName.Contains("mem", StringComparison.OrdinalIgnoreCase));

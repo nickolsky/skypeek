@@ -1,17 +1,35 @@
-<ui:FluentWindow x:Class="Skypeek.App.Views.ThresholdDialog"
-                 xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-                 xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
-                 Title="Thresholds" Width="440" SizeToContent="Height" ResizeMode="NoResize"
-                 WindowStartupLocation="CenterOwner" ExtendsContentIntoTitleBar="True" WindowBackdropType="Mica">
-    <StackPanel>
-        <ui:TitleBar Title="Thresholds for this resource" ShowMaximize="False" ShowMinimize="False" />
-        <StackPanel Margin="20,4,20,20">
-            <TextBlock x:Name="ResourceText" FontWeight="SemiBold" TextWrapping="Wrap" />
-            <TextBlock Text="Overrides the target and global thresholds (percent)." Style="{StaticResource Caption}" Margin="0,2,0,12" />
+<Window x:Class="Skypeek.App.Views.ThresholdDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+        Title="Thresholds" Width="440" SizeToContent="Height" ResizeMode="NoResize" FontSize="12"
+        WindowStyle="None" WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="#FF2B2B2B" BorderBrush="#FF3D3D3D" BorderThickness="1">
+    <!-- Same plain look as ConfirmDialog (FluentWindow's Mica tint and extra height looked broken). -->
+    <WindowChrome.WindowChrome>
+        <WindowChrome CaptionHeight="34" ResizeBorderThickness="0" GlassFrameThickness="0" CornerRadius="0" UseAeroCaptionButtons="False" />
+    </WindowChrome.WindowChrome>
+    <DockPanel>
+        <Grid DockPanel.Dock="Top" Height="34">
+            <TextBlock Text="Thresholds for this resource" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="16,0,0,0" />
+            <ui:Button HorizontalAlignment="Right" VerticalAlignment="Top" Width="44" Height="32" Padding="0" Appearance="Transparent" BorderThickness="0"
+                       Icon="{ui:SymbolIcon Dismiss16}" WindowChrome.IsHitTestVisibleInChrome="True" Click="OnCancel" ToolTip="Close" />
+        </Grid>
+
+        <Border DockPanel.Dock="Bottom" Background="#FF202020" BorderBrush="#FF3D3D3D" BorderThickness="0,1,0,0" Padding="20,14">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <ui:Button x:Name="ClearButton" Content="Remove override" Margin="0,0,8,0" Click="OnClear" />
+                <ui:Button Content="Cancel" Margin="0,0,8,0" MinWidth="80" IsCancel="True" Click="OnCancel" />
+                <ui:Button Content="Save" Appearance="Primary" MinWidth="80" IsDefault="True" Click="OnSave" />
+            </StackPanel>
+        </Border>
+
+        <StackPanel Margin="20,4,20,18">
+            <TextBlock x:Name="ResourceText" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource TextStrong}" TextWrapping="Wrap" />
+            <TextBlock Text="Overrides the target and global thresholds (percent). Applied right away." Style="{StaticResource Caption}" Margin="0,2,0,12" />
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="90" />
+                    <ColumnDefinition Width="130" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="12" />
                     <ColumnDefinition Width="*" />
@@ -20,22 +38,21 @@
                     <RowDefinition />
                     <RowDefinition />
                     <RowDefinition />
+                    <RowDefinition />
                 </Grid.RowDefinitions>
                 <TextBlock Grid.Column="1" Text="Warning" Style="{StaticResource Caption}" />
                 <TextBlock Grid.Column="3" Text="Critical" Style="{StaticResource Caption}" />
-                <TextBlock x:Name="CpuLabel" Grid.Row="1" Text="CPU" VerticalAlignment="Center" TextWrapping="Wrap" />
+                <TextBlock x:Name="CpuLabel" Grid.Row="1" Text="CPU" Style="{StaticResource Body}" VerticalAlignment="Center" TextWrapping="Wrap" />
                 <ui:TextBox x:Name="CpuWarn" Grid.Row="1" Grid.Column="1" Margin="0,4" />
                 <ui:TextBox x:Name="CpuCrit" Grid.Row="1" Grid.Column="3" Margin="0,4" />
-                <TextBlock x:Name="MemLabel" Grid.Row="2" Text="Memory" VerticalAlignment="Center" TextWrapping="Wrap" />
+                <TextBlock x:Name="MemLabel" Grid.Row="2" Text="Memory" Style="{StaticResource Body}" VerticalAlignment="Center" TextWrapping="Wrap" />
                 <ui:TextBox x:Name="MemWarn" Grid.Row="2" Grid.Column="1" Margin="0,4" />
                 <ui:TextBox x:Name="MemCrit" Grid.Row="2" Grid.Column="3" Margin="0,4" />
+                <TextBlock x:Name="StorageLabel" Grid.Row="3" Text="Storage used" Style="{StaticResource Body}" VerticalAlignment="Center" Visibility="Collapsed" />
+                <ui:TextBox x:Name="StorageWarn" Grid.Row="3" Grid.Column="1" Margin="0,4" Visibility="Collapsed" />
+                <ui:TextBox x:Name="StorageCrit" Grid.Row="3" Grid.Column="3" Margin="0,4" Visibility="Collapsed" />
             </Grid>
-            <TextBlock x:Name="Error" Foreground="#E8464A" Visibility="Collapsed" Margin="0,8,0,0" />
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
-                <ui:Button x:Name="ClearButton" Content="Remove override" Margin="0,0,8,0" Click="OnClear" />
-                <ui:Button Content="Cancel" Margin="0,0,8,0" Click="OnCancel" />
-                <ui:Button Content="Save" Appearance="Primary" Click="OnSave" />
-            </StackPanel>
+            <TextBlock x:Name="Error" Foreground="#FFFF7B7F" Visibility="Collapsed" Margin="0,8,0,0" TextWrapping="Wrap" />
         </StackPanel>
-    </StackPanel>
-</ui:FluentWindow>
+    </DockPanel>
+</Window>

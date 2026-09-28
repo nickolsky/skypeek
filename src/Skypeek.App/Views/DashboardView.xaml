@@ -463,8 +463,12 @@
                     <views:Sparkline Evaluation="{Binding Connections}" Margin="0,0,8,0" /><TextBlock Text="{Binding ConnectionsText}" Style="{StaticResource Value}" VerticalAlignment="Center" /></StackPanel>
                 <TextBlock Text="{Binding Snapshot.MaxConnectionsSource, StringFormat=max_connections: {0}}" Style="{StaticResource Caption}" Margin="110,0,0,0"
                            Visibility="{Binding Snapshot.MaxConnectionsSource, Converter={StaticResource NullToCollapsed}}" />
-                <StackPanel Orientation="Horizontal" Margin="0,4,0,0"><TextBlock Text="Storage" Style="{StaticResource Label}" VerticalAlignment="Center" />
-                    <views:Sparkline Evaluation="{Binding StorageUsed}" Margin="0,0,8,0" /><TextBlock Text="{Binding StorageText}" Style="{StaticResource Value}" VerticalAlignment="Center" /></StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,6,0,0"><TextBlock Text="Storage" Style="{StaticResource Label}" VerticalAlignment="Center" />
+                    <views:UsageBar Percent="{Binding StorageUsed.Current}" Level="{Binding StorageUsed.Level}" Width="90" Height="8" Margin="0,0,8,0"
+                                    Visibility="{Binding StorageUsed, Converter={StaticResource NullToCollapsed}}" />
+                    <TextBlock Text="{Binding StorageText}" Style="{StaticResource Value}" VerticalAlignment="Center" /></StackPanel>
+                <TextBlock Text="{Binding StorageAutoscaling}" Style="{StaticResource Caption}" Margin="110,0,0,0"
+                           Visibility="{Binding StorageAutoscaling, Converter={StaticResource NullToCollapsed}}" />
                 <StackPanel Orientation="Horizontal" Margin="0,4,0,0"><TextBlock Text="Memory" Style="{StaticResource Label}" /><TextBlock Text="{Binding FreeableMemoryText}" Style="{StaticResource Value}" /></StackPanel>
 
                 <TextBlock Text="Alarms" Style="{StaticResource SectionHeader}" Visibility="{Binding Alarms.Count, Converter={StaticResource CountToVisibility}}" />
@@ -807,7 +811,24 @@
                                         <TextBlock Text="{Binding Badge}" FontSize="10" Foreground="{StaticResource TextStrong}" />
                                     </Border>
                                 </StackPanel>
-                                <TextBlock Grid.Column="2" Text="{Binding Right}" Style="{StaticResource Caption}" Margin="10,0,0,0" VerticalAlignment="Center" />
+                                <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="10,0,0,0" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding Right}" Style="{StaticResource Caption}" VerticalAlignment="Center" />
+                                    <ItemsControl ItemsSource="{Binding Gauges}" Focusable="False">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <StackPanel Orientation="Horizontal" Margin="0,0,12,0">
+                                                    <TextBlock Text="{Binding Label}" Style="{StaticResource Caption}" FontSize="10" VerticalAlignment="Center" Margin="0,0,4,0" />
+                                                    <views:UsageBar Percent="{Binding Percent}" Level="{Binding Level}" Width="40" Height="5" Margin="0,0,5,0"
+                                                                    Visibility="{Binding HasBar, Converter={StaticResource BoolToVisibility}}" />
+                                                    <TextBlock Text="{Binding Text}" Style="{StaticResource Caption}" Foreground="{StaticResource TextNormal}" VerticalAlignment="Center" />
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
                                 <TextBlock Grid.Column="3" Text="{Binding Subtitle}" Style="{StaticResource Caption}" Margin="10,0,0,0" VerticalAlignment="Center"
                                            TextTrimming="CharacterEllipsis" MaxWidth="520" />
                             </Grid>

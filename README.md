@@ -4,7 +4,7 @@ A read-only Windows tray tool for everyday AWS lookups, built so you don't need 
 
 - **Secrets Manager and SSM Parameter Store:** keeps a searchable list of names and metadata, refreshed on a schedule per account and region. You can reveal and copy a value on demand.
 - **Elastic Beanstalk:** shows environment health, failed deploys, EC2 CPU (and memory when the CloudWatch agent publishes it), and CloudWatch alarms.
-- **ECS:** shows service health, rollouts, stopped-task reasons, CPU and memory from CloudWatch, and CloudWatch alarms.
+- **ECS:** shows service health, rollouts, stopped-task reasons, CPU and memory from CloudWatch, and CloudWatch alarms; can force a new deployment (elevated key, approved per call).
 - **RDS:** lists databases and clusters with read replicas as a tree, health, CPU, connections, storage and events; copies host names; shows live and historical database logs. Read-only.
 - **ElastiCache:** lists Redis/Valkey replication groups, shards and nodes, standalone clusters and serverless caches, with endpoints, health, CPU, memory, connections, hit rate and evictions. Read-only.
 - **Request log:** records every AWS call, with no values or credentials.
@@ -89,7 +89,7 @@ Each target has a **read-only profile**, used for everything including backgroun
 
 ## Non-read actions
 
-These are the only calls that aren't pure reads: the EB log request (`RequestEnvironmentInfo`) and the actions above.
+These are the only calls that aren't pure reads: the EB log request (`RequestEnvironmentInfo`), the EB actions above, and ECS **Force new deployment** (`ecs:UpdateService` with only `ForceNewDeployment`; any other field, such as desired count or task definition, is refused by the pipeline). Force new deployment replaces a service's tasks with fresh ones from the current task definition, e.g. to pull a re-tagged image or re-read secrets.
 
 - They always use the target's **elevated** profile, never the read-only one. Targets without an elevated profile can't use them.
 - Each call asks for your approval in the permission dialog.

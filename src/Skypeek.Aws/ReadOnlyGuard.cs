@@ -85,7 +85,26 @@ public static class ReadOnlyGuard
         typeof(Eb.RestartAppServerRequest),       // restart the app server on the environment's instances
         typeof(Ec2.RebootInstancesRequest),       // reboot one instance
         typeof(Ec2.TerminateInstancesRequest),    // terminate one instance (its Auto Scaling group replaces it)
+        typeof(Ecs.UpdateServiceRequest),         // force a new deployment of one service (nothing else)
     };
+
+    /// <summary>The only UpdateService fields the app sets; anything else would change the service's configuration.</summary>
+    private static readonly HashSet<string> ForceDeploymentFields = [nameof(Ecs.UpdateServiceRequest.Cluster), nameof(Ecs.UpdateServiceRequest.Service), nameof(Ecs.UpdateServiceRequest.ForceNewDeployment)];
+
+    /// <summary>
+    /// Checks every public field by reflection, so fields added by future SDK versions (desired count, task definition,
+    /// networking, …) are refused too.
+    /// </summary>
+    private static bool OnlyForcesNewDeployment(Ecs.UpdateServiceRequest r) =>
+        r.ForceNewDeployment == true && !string.IsNullOrEmpty(r.Cluster) && !string.IsNullOrEmpty(r.Service) &&
+        typeof(Ecs.UpdateServiceRequest).GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.DeclaredOnly)
+            .Where(p => !ForceDeploymentFields.Contains(p.Name))
+            .All(p => p.GetValue(r) switch
+            {
+                null => true,
+                System.Collections.ICollection { Count: 0 } => true,
+                _ => false,
+            });
 
     public static bool IsAllowed(AmazonWebServiceRequest? request, bool approved = false, bool elevated = false) =>
         request is not null && (AllowedRequestTypes.Contains(request.GetType())
@@ -100,6 +119,7 @@ public static class ReadOnlyGuard
             => "UpdateEnvironment may only change the application version",
         Ec2.RebootInstancesRequest r when r.InstanceIds is not { Count: 1 } => "RebootInstances must target exactly one instance",
         Ec2.TerminateInstancesRequest r when r.InstanceIds is not { Count: 1 } => "TerminateInstances must target exactly one instance",
+        Ecs.UpdateServiceRequest r when !OnlyForcesNewDeployment(r) => "UpdateService may only force a new deployment of one service",
         _ => null,
     };
 

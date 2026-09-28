@@ -617,6 +617,18 @@ public sealed partial class AwsGateway : IAwsGateway
         confirmation: $"PERMANENTLY terminates EC2 instance {instanceId} of {env.EnvironmentName}. The environment's Auto Scaling group launches a replacement, but anything stored on this instance is lost. This cannot be undone.",
         confirmPhrase: instanceId);
 
+    public Task ForceNewEcsDeploymentAsync(Target target, EcsServiceSnapshot service, CancellationToken ct) =>
+        Call(target, "ecs:UpdateService (force new deployment)", async c =>
+        {
+            // Only cluster, service and ForceNewDeployment; the pipeline guard rejects any other field.
+            await c.Ecs.UpdateServiceAsync(new Ecs.UpdateServiceRequest { Cluster = service.ClusterArn, Service = service.ServiceName, ForceNewDeployment = true }, ct);
+            return true;
+        }, elevated: true, $"{service.ClusterName}/{service.ServiceName}",
+        confirmation: $"Starts a new deployment of {service.ServiceName} in cluster {service.ClusterName} with its current task definition " +
+                      $"({service.Deployments.FirstOrDefault(d => d.Status == "PRIMARY")?.TaskDefinition ?? "unknown"}). ECS replaces all {service.Running} running task(s), " +
+                      "following the service's deployment settings (minimum/maximum healthy percent), so images are pulled again and secrets are re-read. " +
+                      "Nothing else about the service changes.");
+
     /// <summary>Checks right before acting that the instance still belongs to the environment (it may have been replaced).</summary>
     private static async Task EnsureInstanceInEnvironmentAsync(AwsClientSet c, EbEnvironmentSnapshot env, string instanceId, CancellationToken ct)
     {

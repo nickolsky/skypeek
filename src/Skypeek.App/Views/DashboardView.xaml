@@ -336,7 +336,11 @@
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
-                <TextBlock Text="Skypeek is read-only: force a new deployment from the console." Style="{StaticResource Caption}" Margin="0,2,0,0" />
+                <WrapPanel Margin="0,6,0,0">
+                    <ui:Button Content="Force new deployment…" Icon="{ui:SymbolIcon ArrowRepeatAll24}" Appearance="Caution" Click="OnForceNewDeployment" Margin="0,0,8,4"
+                               ToolTip="Replace all tasks with fresh ones from the current task definition" />
+                    <TextBlock Text="Uses the elevated key and asks for confirmation each time." Style="{StaticResource Caption}" VerticalAlignment="Center" />
+                </WrapPanel>
 
                 <TextBlock Text="Stopped tasks" Style="{StaticResource SectionHeader}" Visibility="{Binding StoppedReasons.Count, Converter={StaticResource CountToVisibility}}" />
                 <ItemsControl ItemsSource="{Binding StoppedReasons}">

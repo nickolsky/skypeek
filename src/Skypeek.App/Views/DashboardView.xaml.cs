@@ -467,7 +467,14 @@ public partial class DashboardView
                 () => _session.Gateway.TerminateEbInstanceAsync(target, env.Snapshot, instanceId, CancellationToken.None));
     }
 
-    /// <summary>Runs an approved action, reports the outcome, then refreshes health so EB events show progress.</summary>
+    private void OnForceNewDeployment(object sender, RoutedEventArgs e)
+    {
+        if (ResourceFrom(sender) is EcsServiceStatus svc && _session.Settings.FindTarget(svc.TargetId) is { } target)
+            _ = RunActionAsync(target, $"Forcing a new deployment of {svc.Snapshot.ServiceName}",
+                () => _session.Gateway.ForceNewEcsDeploymentAsync(target, svc.Snapshot, CancellationToken.None));
+    }
+
+    /// <summary>Runs an approved action, reports the outcome, then refreshes health so EB/ECS events show progress.</summary>
     private async Task RunActionAsync(Target target, string description, Func<Task> action)
     {
         ActionStatus.Foreground = (System.Windows.Media.Brush)FindResource("TextNormal");

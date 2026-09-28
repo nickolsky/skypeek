@@ -91,6 +91,7 @@ public class ResourceRefreshTests
         public Task RestartEbAppServersAsync(Target target, EbEnvironmentSnapshot env, CancellationToken ct) => throw new NotSupportedException();
         public Task RebootEbInstanceAsync(Target target, EbEnvironmentSnapshot env, string instanceId, CancellationToken ct) => throw new NotSupportedException();
         public Task TerminateEbInstanceAsync(Target target, EbEnvironmentSnapshot env, string instanceId, CancellationToken ct) => throw new NotSupportedException();
+        public Task ForceNewEcsDeploymentAsync(Target target, EcsServiceSnapshot service, CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlyList<EbApplicationVersion>> GetEbApplicationVersionsAsync(Target target, string application, CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlyList<LogSource>> GetRdsLogSourcesAsync(Target target, RdsInstanceSnapshot db, CancellationToken ct) => throw new NotSupportedException();
         public Task<RdsLogPortion> DownloadRdsLogAsync(Target target, string instanceId, string fileName, string? marker, int? lines, CancellationToken ct) => throw new NotSupportedException();

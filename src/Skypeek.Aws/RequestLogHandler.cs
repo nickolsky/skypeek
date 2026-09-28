@@ -99,6 +99,7 @@ public static class RequestParameterRedactor
         Eb.RestartAppServerRequest r => Join(("EnvironmentId", r.EnvironmentId)),
         Ec2.DescribeInstancesRequest r => Join(("Instances", r.InstanceIds?.Count)),
         Ec2.RebootInstancesRequest r => Join(("InstanceIds", r.InstanceIds is null ? null : string.Join(",", r.InstanceIds))),
+        Ecs.UpdateServiceRequest r => Join(("Cluster", r.Cluster), ("Service", r.Service), ("ForceNewDeployment", r.ForceNewDeployment)),
         Ec2.TerminateInstancesRequest r => Join(("InstanceIds", r.InstanceIds is null ? null : string.Join(",", r.InstanceIds))),
         Eb.RetrieveEnvironmentInfoRequest r => Join(("EnvironmentId", r.EnvironmentId), ("InfoType", r.InfoType?.Value)),
         Logs.DescribeLogGroupsRequest r => Join(("LogGroupNamePrefix", r.LogGroupNamePrefix), ("NextToken", Token(r.NextToken))),

@@ -101,7 +101,7 @@ public class ReadOnlyGuardTests
     public void Confirmed_only_actions_are_exactly_the_approved_set()
     {
         var names = ReadOnlyGuard.ConfirmedOnlyRequestTypes.Select(t => t.Name).OrderBy(n => n).ToList();
-        Assert.Equal(["RebootInstancesRequest", "RequestEnvironmentInfoRequest", "RestartAppServerRequest", "TerminateInstancesRequest", "UpdateEnvironmentRequest"], names);
+        Assert.Equal(["RebootInstancesRequest", "RequestEnvironmentInfoRequest", "RestartAppServerRequest", "TerminateInstancesRequest", "UpdateEnvironmentRequest", "UpdateServiceRequest"], names);
     }
 
     [Fact]
@@ -117,6 +117,17 @@ public class ReadOnlyGuardTests
         Assert.NotNull(ReadOnlyGuard.ConfirmedRequestProblem(new Amazon.ElasticBeanstalk.Model.UpdateEnvironmentRequest { EnvironmentId = "e-1", SolutionStackName = "x" }));
         Assert.NotNull(ReadOnlyGuard.ConfirmedRequestProblem(new Amazon.EC2.Model.TerminateInstancesRequest { InstanceIds = ["i-1", "i-2"] }));
         Assert.Null(ReadOnlyGuard.ConfirmedRequestProblem(new Amazon.EC2.Model.TerminateInstancesRequest { InstanceIds = ["i-1"] }));
+
+        // ECS: only "force new deployment"; any other change to the service is refused.
+        Assert.Null(ReadOnlyGuard.ConfirmedRequestProblem(new Amazon.ECS.Model.UpdateServiceRequest { Cluster = "c", Service = "s", ForceNewDeployment = true }));
+        Assert.NotNull(ReadOnlyGuard.ConfirmedRequestProblem(new Amazon.ECS.Model.UpdateServiceRequest { Cluster = "c", Service = "s" }));
+        Assert.NotNull(ReadOnlyGuard.ConfirmedRequestProblem(new Amazon.ECS.Model.UpdateServiceRequest { Cluster = "c", Service = "s", ForceNewDeployment = true, DesiredCount = 0 }));
+        Assert.NotNull(ReadOnlyGuard.ConfirmedRequestProblem(new Amazon.ECS.Model.UpdateServiceRequest { Cluster = "c", Service = "s", ForceNewDeployment = true, TaskDefinition = "evil:1" }));
+        Assert.NotNull(ReadOnlyGuard.ConfirmedRequestProblem(new Amazon.ECS.Model.UpdateServiceRequest
+        {
+            Cluster = "c", Service = "s", ForceNewDeployment = true,
+            NetworkConfiguration = new Amazon.ECS.Model.NetworkConfiguration(),
+        }));
 
         // Approval without the elevated key is not enough.
         var reboot = new Amazon.EC2.Model.RebootInstancesRequest { InstanceIds = ["i-1"] };
@@ -142,6 +153,29 @@ public class ReadOnlyGuardTests
         {
             // The fake endpoint's reply does not parse as an EB response; reaching it is what matters.
             var ex = await Record.ExceptionAsync(() => eb.RequestEnvironmentInfoAsync(request));
+            Assert.IsNotType<WriteOperationBlockedException>(ex);
+        }
+        Assert.Equal(1, endpoint.Requests);
+    }
+
+    [Fact]
+    public async Task Ecs_force_deployment_needs_an_approved_elevated_scope_and_the_narrow_shape()
+    {
+        SharedPipeline.EnsureInstalled();
+        using var endpoint = new FakeAwsEndpoint("{}");
+        using var ecs = new Amazon.ECS.AmazonECSClient(Creds, Config(new Amazon.ECS.AmazonECSConfig(), endpoint.Url));
+        var force = new Amazon.ECS.Model.UpdateServiceRequest { Cluster = "c", Service = "s", ForceNewDeployment = true };
+        var scaleToZero = new Amazon.ECS.Model.UpdateServiceRequest { Cluster = "c", Service = "s", ForceNewDeployment = true, DesiredCount = 0 };
+
+        using (RequestScope.Begin(new RequestScopeInfo("p", null, "us-east-1", Elevated: false, Approved: true)))
+            await Assert.ThrowsAsync<WriteOperationBlockedException>(() => ecs.UpdateServiceAsync(force));
+        using (RequestScope.Begin(new RequestScopeInfo("p", null, "us-east-1", Elevated: true, Approved: true)))
+            await Assert.ThrowsAsync<WriteOperationBlockedException>(() => ecs.UpdateServiceAsync(scaleToZero));
+        Assert.Equal(0, endpoint.Requests);
+
+        using (RequestScope.Begin(new RequestScopeInfo("p", null, "us-east-1", Elevated: true, Approved: true)))
+        {
+            var ex = await Record.ExceptionAsync(() => ecs.UpdateServiceAsync(force));
             Assert.IsNotType<WriteOperationBlockedException>(ex);
         }
         Assert.Equal(1, endpoint.Requests);
@@ -241,7 +275,8 @@ public class ReadOnlyGuardTests
             .Where(t => !ReadOnlyGuard.AllowedRequestTypes.Contains(t) && !ReadOnlyGuard.ConfirmedOnlyRequestTypes.Contains(t))
             .Select(t => t.FullName!)
             .ToArray();
-        Assert.Contains("Amazon.ECS.Model.UpdateServiceRequest", forbidden);
+        Assert.Contains("Amazon.ECS.Model.DeleteServiceRequest", forbidden);
+        Assert.Contains("Amazon.ECS.Model.StopTaskRequest", forbidden);
         Assert.Contains("Amazon.ElasticBeanstalk.Model.RebuildEnvironmentRequest", forbidden);
         Assert.Contains("Amazon.EC2.Model.StopInstancesRequest", forbidden);
         // Databases and caches are strictly read-only: no reboot, failover, modify or delete.

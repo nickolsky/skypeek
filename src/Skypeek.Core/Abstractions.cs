@@ -69,6 +69,8 @@ public interface IAwsGateway
     Task RebootEbInstanceAsync(Target target, EbEnvironmentSnapshot env, string instanceId, CancellationToken ct);
     /// <summary>Terminates one EC2 instance of the environment; its Auto Scaling group launches a replacement.</summary>
     Task TerminateEbInstanceAsync(Target target, EbEnvironmentSnapshot env, string instanceId, CancellationToken ct);
+    /// <summary>Starts a new deployment of an ECS service with its current task definition (only ForceNewDeployment is sent).</summary>
+    Task ForceNewEcsDeploymentAsync(Target target, EcsServiceSnapshot service, CancellationToken ct);
 }
 
 /// <param name="Elevated">Signed with the target's elevated profile.</param>

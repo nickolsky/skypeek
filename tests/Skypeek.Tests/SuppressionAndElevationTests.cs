@@ -188,6 +188,14 @@ public class ElevationTests
         Assert.True(request.Elevated);
         Assert.Equal("123456789012_AWSAdministratorAccess", request.Profile);
 
+        // ECS force deployment: same rules.
+        var service = new EcsServiceSnapshot { ClusterName = "prod", ClusterArn = "arn:aws:ecs:us-east-1:1:cluster/prod", ServiceName = "api", Running = 2 };
+        await Assert.ThrowsAsync<ElevationDeniedException>(() => gateway.ForceNewEcsDeploymentAsync(Target, service, CancellationToken.None));
+        Assert.Equal(2, approver.Requests.Count);
+        Assert.True(approver.Requests[1].Elevated);
+        Assert.Contains("replaces all 2 running task(s)", approver.Requests[1].Explanation);
+        approver.Requests.RemoveAt(1);
+
         // Without an elevated profile the action is refused outright; the read-only key is never used for it.
         var readOnlyOnly = new Target { Id = 3, ProfileName = CredentialsFile.Profile, Region = "us-east-1" };
         await Assert.ThrowsAsync<InvalidOperationException>(() => gateway.RequestEbLogsAsync(readOnlyOnly, "e-1", "api-prod", bundle: false, CancellationToken.None));

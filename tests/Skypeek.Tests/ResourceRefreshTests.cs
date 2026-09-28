@@ -32,6 +32,7 @@ public class ResourceRefreshTests
         /// <summary>One point by default; more (one per minute) to exceed the sustained-minutes window.</summary>
         public int PointsPerMetric { get; set; } = 1;
         public List<string> Calls { get; } = [];
+        public List<MetricQuery> LastQueries { get; } = [];
 
         public Task<RdsInventory> GetRdsAsync(Target target, DateTime eventsSince, CancellationToken ct, string? onlyInstance = null, string? onlyCluster = null)
         {
@@ -64,6 +65,8 @@ public class ResourceRefreshTests
         public Task<IReadOnlyDictionary<string, IReadOnlyList<MetricPoint>>> GetMetricDataAsync(Target target, IReadOnlyList<MetricQuery> queries, DateTime start, DateTime end, CancellationToken ct)
         {
             Calls.Add($"metrics:{queries.Count}");
+            LastQueries.Clear();
+            LastQueries.AddRange(queries);
             // 55 for percentages and connections; 25 GiB free of 100 for storage.
             IReadOnlyDictionary<string, IReadOnlyList<MetricPoint>> data = queries.ToDictionary(q => q.Id,
                 q => (IReadOnlyList<MetricPoint>)Enumerable.Range(1, PointsPerMetric)
@@ -147,6 +150,33 @@ public class ResourceRefreshTests
         health.Reevaluate();
         Assert.Equal(HealthLevel.Ok, health.Get(1)!.Rds.Single().Level);
         Assert.Equal(HealthLevel.Ok, health.Get(1)!.Rds.Single().StorageUsed!.Level);
+    }
+
+    [Fact]
+    public async Task Usage_analysis_reads_hourly_stats_and_turns_free_memory_into_used_percent()
+    {
+        var stores = new MemoryStores();
+        var settings = new SettingsService(stores);
+        var gateway = new FakeGateway { PointsPerMetric = 48 };
+        var health = new HealthService(gateway, stores, settings, new Quiet());
+        var target = stores.Targets[0];
+        target.EcsEnabled = false;
+        target.CacheEnabled = false;
+        await health.PollHealthAsync(target, CancellationToken.None);
+        var db = health.Get(1)!.Rds.Single();
+
+        var report = await health.AnalyzeUsageAsync(target, db, 30, CancellationToken.None);
+
+        // CPU, memory (from FreeableMemory) and connections (max_connections known), each as hourly Average/Minimum/Maximum.
+        Assert.Equal(9, gateway.LastQueries.Count);
+        Assert.All(gateway.LastQueries, q => Assert.Equal(3600, q.PeriodSeconds));
+        Assert.Equal(["CPU", "Memory", "Connections"], report.Series.Select(s => s.Metric));
+        var memory = report.Series.Single(s => s.Metric == "Memory");
+        // db.m5.large = 8 GiB; the fake reports 55 bytes free, i.e. ~100% used, flagged as an estimate.
+        Assert.True(memory.Estimated);
+        Assert.Equal(100, memory.Average!.Value, precision: 3);
+        Assert.Equal(48, memory.Hours);
+        Assert.Equal(Provisioning.Under, report.Verdict);
     }
 
     [Fact]

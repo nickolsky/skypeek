@@ -22,6 +22,7 @@ public partial class DashboardView
     private static readonly TimeSpan VersionsMaxAge = TimeSpan.FromMinutes(10);
     private string? _selectedKey;
     private bool _rebuilding;
+    private bool _searching;
 
     public DashboardView(AppSession session)
     {
@@ -41,6 +42,15 @@ public partial class DashboardView
         style.Setters.Add(new Setter(TreeViewItem.ForegroundProperty, FindResource("TextNormal")));
         Tree.ItemContainerStyle = style;
         GroupByApp.IsChecked = session.Settings.Settings.EbGroupByApplication;
+        PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == System.Windows.Input.Key.F && System.Windows.Input.Keyboard.Modifiers == System.Windows.Input.ModifierKeys.Control)
+            {
+                SearchBox.Focus();
+                SearchBox.SelectAll();
+                e.Handled = true;
+            }
+        };
 
         session.Health.Changed += Schedule;
         session.Monitor.StatusChanged += Schedule;
@@ -80,10 +90,16 @@ public partial class DashboardView
         try
         {
             var roots = DashboardTreeBuilder.Build(_session, ProblemsOnly.IsChecked == true);
+            var query = SearchBox.Text?.Trim() ?? "";
+            _searching = query.Length > 0;
+            // While searching the tree shows only matches and the path to them, opened; normal expansion comes back after.
+            if (_searching)
+                roots = DashboardTreeBuilder.Filter(roots, query);
             DashNode? selected = null;
             foreach (var node in Flatten(roots))
             {
-                node.IsExpanded = _expanded.TryGetValue(node.Key, out var open) ? open : DefaultExpanded(node);
+                if (!_searching)
+                    node.IsExpanded = _expanded.TryGetValue(node.Key, out var open) ? open : DefaultExpanded(node);
                 if (node.Key == _selectedKey)
                 {
                     node.IsSelected = true;
@@ -101,6 +117,8 @@ public partial class DashboardView
             if (suppressed > 0)
                 Summary.Text += $" · {suppressed} suppressed alarm(s) ignored";
             Summary.Foreground = status.Count == 0 ? LevelToBrushConverter.Ok : LevelToBrushConverter.Critical;
+            if (_searching)
+                Summary.Text = $"{Flatten(roots).Count(n => n.IsMatch)} match(es) · {Summary.Text}";
 
             var health = _session.Health.Snapshot();
             var lastHealth = health.Select(h => h.HealthUpdated).Where(d => d is not null).DefaultIfEmpty().Max();
@@ -123,7 +141,7 @@ public partial class DashboardView
 
     private void OnNodeChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (_rebuilding || sender is not DashNode node)
+        if (_rebuilding || _searching || sender is not DashNode node)
             return;
         if (e.PropertyName == nameof(DashNode.IsExpanded))
             _expanded[node.Key] = node.IsExpanded;
@@ -145,6 +163,29 @@ public partial class DashboardView
         Details.Content = payload;
         if (payload is EbApplicationDetail app)
             _ = LoadVersionsAsync(app, force: false);
+    }
+
+    private void OnSearchChanged(object sender, TextChangedEventArgs e)
+    {
+        _debounce.Stop();
+        _debounce.Start();
+    }
+
+    private void OnSearchKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == System.Windows.Input.Key.Escape && SearchBox.Text.Length > 0)
+        {
+            SearchBox.Text = "";
+            e.Handled = true;
+        }
+        else if (e.Key == System.Windows.Input.Key.Enter)
+        {
+            Rebuild();
+            // Jump to the first match.
+            if (Tree.ItemsSource is IEnumerable<DashNode> roots && Flatten(roots).FirstOrDefault(n => n.IsMatch) is { } first)
+                first.IsSelected = true;
+            e.Handled = true;
+        }
     }
 
     private void OnGroupByAppChanged(object sender, RoutedEventArgs e)
@@ -465,6 +506,42 @@ public partial class DashboardView
         if (sender is FrameworkElement { Tag: string instanceId } && OwningEnvironment(sender) is var (target, env))
             _ = RunActionAsync(target, $"Terminating {instanceId}",
                 () => _session.Gateway.TerminateEbInstanceAsync(target, env.Snapshot, instanceId, CancellationToken.None));
+    }
+
+    private void OnOpenDetailConsole(object sender, RoutedEventArgs e)
+    {
+        switch ((sender as FrameworkElement)?.DataContext)
+        {
+            case EcsTaskDetail task: OpenUrl(task.ConsoleUrl); break;
+            case EcsContainerDetail container: OpenUrl(container.ConsoleUrl); break;
+        }
+    }
+
+    /// <summary>Opens the Logs tab on this container's CloudWatch stream for this one task.</summary>
+    private void OnViewContainerLogs(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: EcsContainerInfo container } element)
+            return;
+        (EcsServiceStatus? service, EcsTaskInfo? task) = element.DataContext switch
+        {
+            EcsContainerDetail d => (d.Service, d.Task),
+            EcsContainerInfo when FindDetail<EcsTaskDetail>(element) is { } t => (t.Service, t.Task),
+            _ => (null, null),
+        };
+        if (service is null || task is null || _session.Settings.FindTarget(service.TargetId) is not { } target || Window.GetWindow(this) is not MainWindow main)
+            return;
+        main.OpenLogs(target, service, new LogFocus(container.Name, task.TaskId));
+    }
+
+    private static T? FindDetail<T>(DependencyObject? current) where T : class
+    {
+        while (current is not null)
+        {
+            if (current is FrameworkElement { DataContext: T found })
+                return found;
+            current = System.Windows.Media.VisualTreeHelper.GetParent(current);
+        }
+        return null;
     }
 
     private void OnForceNewDeployment(object sender, RoutedEventArgs e)

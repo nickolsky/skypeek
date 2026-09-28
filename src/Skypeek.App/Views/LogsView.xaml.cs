@@ -16,6 +16,9 @@ using Skypeek.Core.Services;
 
 namespace Skypeek.App.Views;
 
+/// <summary>Open the logs of one container in one ECS task.</summary>
+public sealed record LogFocus(string Container, string TaskId);
+
 /// <summary>
 /// CloudWatch Logs for an ECS service's containers, an EB environment or an RDS instance, EB instance log requests,
 /// and RDS log files (history and live tail).
@@ -63,7 +66,7 @@ public partial class LogsView
     }
 
     /// <summary>Called from the dashboard.</summary>
-    public async void Open(Target target, ResourceStatus resource)
+    public async void Open(Target target, ResourceStatus resource, LogFocus? focus = null)
     {
         var generation = ++_generation;
         Wipe();
@@ -104,6 +107,8 @@ public partial class LogsView
             if (generation != _generation)
                 return;
 
+            if (focus is not null)
+                sources = FocusOnTask(sources, focus);
             Source.ItemsSource = sources;
             var usable = sources.FirstOrDefault(s => s.IsUsable);
             Source.SelectedItem = usable ?? sources.FirstOrDefault();
@@ -127,6 +132,23 @@ public partial class LogsView
             if (generation == _generation)
                 SetStatus(Describe(ex));
         }
+    }
+
+    /// <summary>
+    /// awslogs names streams &lt;prefix&gt;/&lt;container&gt;/&lt;task id&gt; (or just the task id without a prefix): put a source
+    /// for exactly that stream first, and keep the container's other sources after it.
+    /// </summary>
+    private static IReadOnlyList<LogSource> FocusOnTask(IReadOnlyList<LogSource> sources, LogFocus focus)
+    {
+        var container = sources.FirstOrDefault(s => s.IsUsable && s.Label.StartsWith($"{focus.Container} ·", StringComparison.Ordinal));
+        if (container is null)
+            return sources;
+        var task = container with
+        {
+            Label = $"{focus.Container} · task {focus.TaskId[..Math.Min(8, focus.TaskId.Length)]}… · {container.LogGroup}",
+            StreamPrefix = container.StreamPrefix is null ? focus.TaskId : container.StreamPrefix + focus.TaskId,
+        };
+        return [task, .. sources];
     }
 
     /// <summary>On lock: log lines must not stay on screen.</summary>

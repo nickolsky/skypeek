@@ -126,6 +126,86 @@ public sealed class EcsServiceSnapshot
     public string? LaunchType { get; init; }
     public List<EcsDeploymentInfo> Deployments { get; init; } = [];
     public List<string> Events { get; init; } = [];
+    /// <summary>Running tasks of the service, with their containers.</summary>
+    public List<EcsTaskInfo> Tasks { get; init; } = [];
+}
+
+public sealed class EcsContainerInfo
+{
+    public string Name { get; init; } = "";
+    public string? Image { get; init; }
+    public string? ImageDigest { get; init; }
+    public string LastStatus { get; init; } = "";
+    public string? HealthStatus { get; init; }
+    public int? ExitCode { get; init; }
+    public string? Reason { get; init; }
+    public string? RuntimeId { get; init; }
+    public string? Cpu { get; init; }
+    public string? Memory { get; init; }
+
+    [JsonIgnore]
+    public HealthLevel Level => LastStatus switch
+    {
+        "RUNNING" when HealthStatus == "UNHEALTHY" => HealthLevel.Critical,
+        "RUNNING" => HealthLevel.Ok,
+        "STOPPED" when ExitCode is not (null or 0) => HealthLevel.Critical,
+        _ => HealthLevel.Warn,
+    };
+    [JsonIgnore]
+    public string Summary => string.Join(" · ", new[]
+    {
+        LastStatus.ToLowerInvariant(),
+        HealthStatus is { } h and not "UNKNOWN" ? h.ToLowerInvariant() : null,
+        ExitCode is { } code ? $"exit {code}" : null,
+        Reason,
+    }.Where(s => !string.IsNullOrEmpty(s)));
+    /// <summary>Image without the registry host, e.g. "shop/api:1.4.2".</summary>
+    [JsonIgnore] public string ImageShort => Image is null ? "" : Image.Contains('/') && Image.Split('/')[0].Contains('.') ? Image[(Image.IndexOf('/') + 1)..] : Image;
+}
+
+public sealed class EcsTaskInfo
+{
+    public string TaskArn { get; init; } = "";
+    public string LastStatus { get; init; } = "";
+    public string DesiredStatus { get; init; } = "";
+    public string? HealthStatus { get; init; }
+    public string? TaskDefinition { get; init; }
+    public string? LaunchType { get; init; }
+    public string? CapacityProvider { get; init; }
+    public string? Cpu { get; init; }
+    public string? Memory { get; init; }
+    public string? AvailabilityZone { get; init; }
+    public string? PrivateIp { get; init; }
+    public string? ContainerInstanceArn { get; init; }
+    public string? PlatformVersion { get; init; }
+    public string? StartedBy { get; init; }
+    public DateTime? CreatedAt { get; init; }
+    public DateTime? StartedAt { get; init; }
+    public List<EcsContainerInfo> Containers { get; init; } = [];
+
+    [JsonIgnore] public string TaskId => TaskArn.Contains('/') ? TaskArn[(TaskArn.LastIndexOf('/') + 1)..] : TaskArn;
+    [JsonIgnore]
+    public HealthLevel Level => LastStatus != "RUNNING" ? HealthLevel.Warn
+        : HealthStatus == "UNHEALTHY" ? HealthLevel.Critical
+        : Containers.Count == 0 ? HealthLevel.Ok : Containers.Max(c => c.Level);
+    [JsonIgnore]
+    public string Uptime => StartedAt is not { } started ? "" : (DateTime.UtcNow - started.ToUniversalTime()) switch
+    {
+        var t when t.TotalDays >= 1 => $"up {t.TotalDays:0}d {t.Hours}h",
+        var t when t.TotalHours >= 1 => $"up {t.TotalHours:0}h {t.Minutes}m",
+        var t => $"up {Math.Max(0, t.TotalMinutes):0}m",
+    };
+    [JsonIgnore]
+    public string Summary => string.Join(" · ", new[]
+    {
+        LastStatus.ToLowerInvariant(),
+        HealthStatus is { } h and not "UNKNOWN" ? h.ToLowerInvariant() : null,
+        TaskDefinition,
+        PrivateIp,
+        AvailabilityZone,
+        Uptime,
+    }.Where(s => !string.IsNullOrEmpty(s)));
+    [JsonIgnore] public string SizeText => Cpu is null && Memory is null ? "" : $"{Cpu} CPU units · {Memory} MiB";
 }
 
 public abstract class ResourceStatus

@@ -695,6 +695,7 @@ public sealed partial class AwsGateway : IAwsGateway
                     } while (!string.IsNullOrEmpty(token) && ++pages < MaxPages);
                 }
 
+                var tasks = await GetRunningTasksAsync(c, clusterArn, single ? NameFromArn(onlyServiceArn!) : null, ct);
                 foreach (var chunk in serviceArns.Chunk(10))
                 {
                     var resp = await c.Ecs.DescribeServicesAsync(new Ecs.DescribeServicesRequest { Cluster = clusterArn, Services = chunk.ToList() }, ct);
@@ -726,12 +727,99 @@ public sealed partial class AwsGateway : IAwsGateway
                                 TaskDefinition = d.TaskDefinition is { } td ? NameFromArn(td) : null,
                             }).ToList(),
                             Events = (s.Events ?? []).Take(8).Select(e => $"{e.CreatedAt?.ToLocalTime():g}  {e.Message}").ToList(),
+                            Tasks = tasks.GetValueOrDefault(s.ServiceName ?? "") ?? [],
                         });
                     }
                 }
             }
             return result;
         });
+
+    private const int MaxTaskPagesPerCluster = 20;
+
+    /// <summary>
+    /// Running tasks of a cluster (or one service) with their containers, grouped by service name. One ListTasks page
+    /// and one DescribeTasks call per 100 tasks; tasks are optional detail, so failures leave the lists empty.
+    /// </summary>
+    private static async Task<Dictionary<string, List<EcsTaskInfo>>> GetRunningTasksAsync(AwsClientSet c, string clusterArn, string? serviceName, CancellationToken ct)
+    {
+        var byService = new Dictionary<string, List<EcsTaskInfo>>();
+        try
+        {
+            var arns = new List<string>();
+            string? token = null;
+            var pages = 0;
+            do
+            {
+                var resp = await c.Ecs.ListTasksAsync(new Ecs.ListTasksRequest
+                {
+                    Cluster = clusterArn,
+                    ServiceName = serviceName,
+                    DesiredStatus = DesiredStatus.RUNNING,
+                    MaxResults = 100,
+                    NextToken = token,
+                }, ct);
+                arns.AddRange(resp.TaskArns ?? []);
+                token = resp.NextToken;
+            } while (!string.IsNullOrEmpty(token) && ++pages < MaxTaskPagesPerCluster);
+
+            foreach (var chunk in arns.Chunk(100))
+            {
+                var resp = await c.Ecs.DescribeTasksAsync(new Ecs.DescribeTasksRequest { Cluster = clusterArn, Tasks = chunk.ToList() }, ct);
+                foreach (var t in resp.Tasks ?? [])
+                {
+                    // Service tasks are in group "service:<name>".
+                    var group = t.Group is { } g && g.StartsWith("service:", StringComparison.Ordinal) ? g["service:".Length..] : serviceName;
+                    if (group is null)
+                        continue;
+                    if (!byService.TryGetValue(group, out var list))
+                        byService[group] = list = [];
+                    list.Add(MapTask(t));
+                }
+            }
+        }
+        catch (AmazonServiceException ex) when (!AwsErrorClassifier.IsAuthFailure(ex.ErrorCode))
+        {
+            // Service health does not depend on the task list.
+        }
+        foreach (var list in byService.Values)
+            list.Sort((a, b) => Nullable.Compare(a.StartedAt, b.StartedAt));
+        return byService;
+    }
+
+    private static EcsTaskInfo MapTask(Ecs.Task t) => new()
+    {
+        TaskArn = t.TaskArn ?? "",
+        LastStatus = t.LastStatus ?? "",
+        DesiredStatus = t.DesiredStatus ?? "",
+        HealthStatus = t.HealthStatus?.Value,
+        TaskDefinition = t.TaskDefinitionArn is { } td ? NameFromArn(td) : null,
+        LaunchType = t.LaunchType?.Value,
+        CapacityProvider = t.CapacityProviderName,
+        Cpu = t.Cpu,
+        Memory = t.Memory,
+        AvailabilityZone = t.AvailabilityZone,
+        PrivateIp = (t.Attachments ?? []).SelectMany(a => a.Details ?? []).FirstOrDefault(d => d.Name == "privateIPv4Address")?.Value
+                    ?? (t.Containers ?? []).SelectMany(x => x.NetworkInterfaces ?? []).Select(n => n.PrivateIpv4Address).FirstOrDefault(ip => ip is not null),
+        ContainerInstanceArn = t.ContainerInstanceArn,
+        PlatformVersion = t.PlatformVersion,
+        StartedBy = t.StartedBy,
+        CreatedAt = t.CreatedAt,
+        StartedAt = t.StartedAt,
+        Containers = (t.Containers ?? []).Select(x => new EcsContainerInfo
+        {
+            Name = x.Name ?? "",
+            Image = x.Image,
+            ImageDigest = x.ImageDigest,
+            LastStatus = x.LastStatus ?? "",
+            HealthStatus = x.HealthStatus?.Value,
+            ExitCode = x.ExitCode,
+            Reason = x.Reason,
+            RuntimeId = x.RuntimeId,
+            Cpu = x.Cpu,
+            Memory = x.MemoryReservation ?? x.Memory,
+        }).OrderBy(x => x.Name).ToList(),
+    };
 
     public Task<IReadOnlyList<string>> GetStoppedTaskReasonsAsync(Target target, string cluster, string service, CancellationToken ct) =>
         Call<IReadOnlyList<string>>(target, "ListTasks", async c =>

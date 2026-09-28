@@ -53,10 +53,10 @@ public partial class MainWindow
     }
 
     /// <summary>"View logs" from the dashboard.</summary>
-    public void OpenLogs(Core.Models.Target target, Core.Models.ResourceStatus resource)
+    public void OpenLogs(Core.Models.Target target, Core.Models.ResourceStatus resource, LogFocus? focus = null)
     {
         Tabs.SelectedItem = LogsTab;
-        _logs.Open(target, resource);
+        _logs.Open(target, resource, focus);
     }
 
     public void OnStatusChanged(TrayStatus status)
@@ -70,6 +70,7 @@ public partial class MainWindow
     {
         _catalog.Wipe();
         _logs.Wipe();
+        UsagePanel.ClearCache();
         Hide();
     }
 

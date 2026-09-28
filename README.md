@@ -57,6 +57,16 @@ Each target has a **read-only profile**, used for everything including backgroun
   - the database's own log files (`rds:DescribeDBLogFiles`), newest first. Selecting one shows its last 3,000 lines (`rds:DownloadDBLogFilePortion`); the filter box keeps only lines containing the text. **Live tail** follows the file and moves to the next file when the engine rotates it (e.g. hourly for PostgreSQL).
 - **Log lines are never stored.** They are cleared when the app locks.
 
+## Search, ECS tasks and usage history
+
+- **Search** (Ctrl+F in the dashboard) filters the tree to resources whose name, subtitle or details contain every word you type: names, instance/task IDs, IPs, endpoints, image names, versions, account IDs. The path to each match opens; Enter jumps to the first match, Esc clears.
+- **ECS tasks and containers:** each service lists its running tasks (status, health, task definition, IP, zone, uptime) and each task its containers (status, health, exit code, image). A container's **View logs** opens its CloudWatch stream for that task only. Tasks are read with the health poll (`ecs:ListTasks` + `ecs:DescribeTasks`, batched per cluster).
+- **Usage (last 30 days)** in the EB, ECS, RDS and ElastiCache details reads hourly CPU and memory history from CloudWatch on demand (Skypeek itself keeps only the last hour): average, minimum, maximum and p95 per node, how many hours peaked at ~100% (≥99%) or ≥90%, and a verdict:
+  - **Under-provisioned** when any node peaks at ~100% in at least 2% of hours, or its typical load (p95 of hourly averages) is 80% or more.
+  - **Over-provisioned** when every metric's p95 stays below 30% and its peak below 60% (CPU) or 50% (memory).
+  - **Right-sized** otherwise; no verdict with less than 24 hours of data.
+  - EC2 memory needs the CloudWatch agent; RDS memory is estimated from `FreeableMemory` and the instance size (marked ≈). Results are kept for an hour and cleared on lock.
+
 ## Elastic Beanstalk versions, nodes and actions
 
 - **Versions:** each environment shows its deployed version with its creation date, and whether it is the newest version of the application. The tree marks environments that are behind with "not latest version".

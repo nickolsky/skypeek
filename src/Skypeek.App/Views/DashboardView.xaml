@@ -222,6 +222,7 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
 
+                <views:UsagePanel Resource="{Binding}" />
                 <TextBlock Text="Alarms" Style="{StaticResource SectionHeader}" Visibility="{Binding Alarms.Count, Converter={StaticResource CountToVisibility}}" />
                 <ContentPresenter Content="{Binding}" ContentTemplate="{StaticResource AlarmRows}" />
 
@@ -349,6 +350,7 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
 
+                <views:UsagePanel Resource="{Binding}" />
                 <TextBlock Text="Alarms" Style="{StaticResource SectionHeader}" Visibility="{Binding Alarms.Count, Converter={StaticResource CountToVisibility}}" />
                 <ContentPresenter Content="{Binding}" ContentTemplate="{StaticResource AlarmRows}" />
 
@@ -475,6 +477,7 @@
                            Visibility="{Binding StorageAutoscaling, Converter={StaticResource NullToCollapsed}}" />
                 <StackPanel Orientation="Horizontal" Margin="0,4,0,0"><TextBlock Text="Memory" Style="{StaticResource Label}" /><TextBlock Text="{Binding FreeableMemoryText}" Style="{StaticResource Value}" /></StackPanel>
 
+                <views:UsagePanel Resource="{Binding}" />
                 <TextBlock Text="Alarms" Style="{StaticResource SectionHeader}" Visibility="{Binding Alarms.Count, Converter={StaticResource CountToVisibility}}" />
                 <ContentPresenter Content="{Binding}" ContentTemplate="{StaticResource AlarmRows}" />
                 <TextBlock Text="Recent events" Style="{StaticResource SectionHeader}" />
@@ -666,6 +669,7 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
 
+                <views:UsagePanel Resource="{Binding}" />
                 <TextBlock Text="Alarms" Style="{StaticResource SectionHeader}" Visibility="{Binding Alarms.Count, Converter={StaticResource CountToVisibility}}" />
                 <ContentPresenter Content="{Binding}" ContentTemplate="{StaticResource AlarmRows}" />
                 <TextBlock Text="Recent events" Style="{StaticResource SectionHeader}" />
@@ -702,6 +706,91 @@
                 <StackPanel Orientation="Horizontal" Margin="0,4,0,0"><TextBlock Text="Memory" Style="{StaticResource Label}" VerticalAlignment="Center" />
                     <views:Sparkline Evaluation="{Binding View.Metric.Memory}" Margin="0,0,8,0" /><TextBlock Text="{Binding View.Metric.Memory.Display, FallbackValue=n/a}" Style="{StaticResource Value}" VerticalAlignment="Center" /></StackPanel>
                 <TextBlock Text="{Binding View.Detail}" Style="{StaticResource Body}" Margin="0,6,0,0" TextWrapping="Wrap" />
+            </StackPanel>
+        </DataTemplate>
+
+
+        <!-- ============ ECS task / container ============ -->
+        <DataTemplate DataType="{x:Type views:EcsTaskDetail}">
+            <StackPanel>
+                <StackPanel Orientation="Horizontal">
+                    <Ellipse Style="{StaticResource LevelDot}" Fill="{Binding Task.Level, Converter={StaticResource LevelToBrush}}" Margin="0,0,8,0" />
+                    <TextBlock Text="{Binding Task.TaskId}" FontSize="15" FontWeight="SemiBold" FontFamily="{StaticResource MonoFont}" Foreground="{StaticResource TextStrong}" />
+                </StackPanel>
+                <TextBlock Style="{StaticResource Caption}" Margin="17,0,0,6" TextWrapping="Wrap">
+                    <TextBlock.Text>
+                        <MultiBinding StringFormat="{}ECS task · service {0} · cluster {1} · {2}">
+                            <Binding Path="Service.Snapshot.ServiceName" />
+                            <Binding Path="Service.Snapshot.ClusterName" />
+                            <Binding Path="Service.RefreshedText" />
+                        </MultiBinding>
+                    </TextBlock.Text>
+                </TextBlock>
+                <WrapPanel Margin="0,0,0,6">
+                    <ui:Button Content="Copy task ID" Icon="{ui:SymbolIcon Copy24}" Click="OnCopyText" Tag="{Binding Task.TaskId}" Margin="0,0,6,4" />
+                    <ui:Button Content="Copy IP" Icon="{ui:SymbolIcon Copy24}" Click="OnCopyText" Tag="{Binding Task.PrivateIp}" Margin="0,0,6,4"
+                               Visibility="{Binding Task.PrivateIp, Converter={StaticResource NullToCollapsed}}" />
+                    <ui:Button Content="Open in console" Icon="{ui:SymbolIcon Open24}" Click="OnOpenDetailConsole" Margin="0,0,6,4" />
+                </WrapPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Text="Status" Style="{StaticResource Label}" />
+                    <TextBlock Style="{StaticResource Value}"><TextBlock.Text><MultiBinding StringFormat="{}{0} (desired {1}) · health {2}"><Binding Path="Task.LastStatus" /><Binding Path="Task.DesiredStatus" /><Binding Path="Task.HealthStatus" TargetNullValue="n/a" /></MultiBinding></TextBlock.Text></TextBlock></StackPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Text="Task definition" Style="{StaticResource Label}" /><TextBlock Text="{Binding Task.TaskDefinition}" Style="{StaticResource Value}" FontFamily="{StaticResource MonoFont}" /></StackPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Text="Started" Style="{StaticResource Label}" />
+                    <TextBlock Style="{StaticResource Value}"><TextBlock.Text><MultiBinding StringFormat="{}{0:g} · {1}"><Binding Path="Task.StartedAt" Converter="{StaticResource LocalTime}" /><Binding Path="Task.Uptime" /></MultiBinding></TextBlock.Text></TextBlock></StackPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Text="Private IP" Style="{StaticResource Label}" /><TextBlock Text="{Binding Task.PrivateIp, TargetNullValue='—'}" Style="{StaticResource Value}" FontFamily="{StaticResource MonoFont}" /></StackPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Text="Zone" Style="{StaticResource Label}" /><TextBlock Text="{Binding Task.AvailabilityZone}" Style="{StaticResource Value}" /></StackPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Text="Launch" Style="{StaticResource Label}" />
+                    <TextBlock Style="{StaticResource Value}"><TextBlock.Text><MultiBinding StringFormat="{}{0} {1} · {2}"><Binding Path="Task.LaunchType" TargetNullValue="" /><Binding Path="Task.CapacityProvider" TargetNullValue="" /><Binding Path="Task.SizeText" /></MultiBinding></TextBlock.Text></TextBlock></StackPanel>
+                <StackPanel Orientation="Horizontal" Visibility="{Binding Task.StartedBy, Converter={StaticResource NullToCollapsed}}"><TextBlock Text="Started by" Style="{StaticResource Label}" /><TextBlock Text="{Binding Task.StartedBy}" Style="{StaticResource Value}" FontFamily="{StaticResource MonoFont}" /></StackPanel>
+
+                <TextBlock Text="Containers" Style="{StaticResource SectionHeader}" />
+                <ItemsControl ItemsSource="{Binding Task.Containers}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Style="{StaticResource Panel}" Padding="10,6" Margin="0,0,0,6">
+                                <StackPanel>
+                                    <DockPanel>
+                                        <ui:Button DockPanel.Dock="Right" Content="View logs" Padding="6,1" Click="OnViewContainerLogs" Tag="{Binding}" />
+                                        <StackPanel Orientation="Horizontal">
+                                            <Ellipse Style="{StaticResource LevelDot}" Fill="{Binding Level, Converter={StaticResource LevelToBrush}}" Margin="0,0,8,0" />
+                                            <TextBlock Text="{Binding Name}" Style="{StaticResource Body}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                            <TextBlock Text="{Binding Summary}" Style="{StaticResource Caption}" Margin="8,0,0,0" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                    </DockPanel>
+                                    <TextBlock Text="{Binding Image}" Style="{StaticResource Caption}" FontFamily="{StaticResource MonoFont}" Margin="17,2,0,0" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </DataTemplate>
+
+        <DataTemplate DataType="{x:Type views:EcsContainerDetail}">
+            <StackPanel>
+                <StackPanel Orientation="Horizontal">
+                    <Ellipse Style="{StaticResource LevelDot}" Fill="{Binding Container.Level, Converter={StaticResource LevelToBrush}}" Margin="0,0,8,0" />
+                    <TextBlock Text="{Binding Container.Name}" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource TextStrong}" />
+                </StackPanel>
+                <TextBlock Style="{StaticResource Caption}" Margin="17,0,0,6" TextWrapping="Wrap">
+                    <TextBlock.Text>
+                        <MultiBinding StringFormat="{}Container · task {0} · service {1}">
+                            <Binding Path="Task.TaskId" />
+                            <Binding Path="Service.Snapshot.ServiceName" />
+                        </MultiBinding>
+                    </TextBlock.Text>
+                </TextBlock>
+                <WrapPanel Margin="0,0,0,6">
+                    <ui:Button Content="View logs" Icon="{ui:SymbolIcon DocumentText24}" Appearance="Primary" Click="OnViewContainerLogs" Tag="{Binding Container}" Margin="0,0,6,4" />
+                    <ui:Button Content="Copy image" Icon="{ui:SymbolIcon Copy24}" Click="OnCopyText" Tag="{Binding Container.Image}" Margin="0,0,6,4" />
+                    <ui:Button Content="Open task in console" Icon="{ui:SymbolIcon Open24}" Click="OnOpenDetailConsole" Margin="0,0,6,4" />
+                </WrapPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Text="Status" Style="{StaticResource Label}" /><TextBlock Text="{Binding Container.Summary}" Style="{StaticResource Value}" /></StackPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Text="Image" Style="{StaticResource Label}" /><TextBlock Text="{Binding Container.Image}" Style="{StaticResource Value}" FontFamily="{StaticResource MonoFont}" MaxWidth="520" /></StackPanel>
+                <StackPanel Orientation="Horizontal" Visibility="{Binding Container.ImageDigest, Converter={StaticResource NullToCollapsed}}"><TextBlock Text="Digest" Style="{StaticResource Label}" /><TextBlock Text="{Binding Container.ImageDigest}" Style="{StaticResource Value}" FontFamily="{StaticResource MonoFont}" MaxWidth="520" /></StackPanel>
+                <StackPanel Orientation="Horizontal" Visibility="{Binding Container.RuntimeId, Converter={StaticResource NullToCollapsed}}"><TextBlock Text="Runtime ID" Style="{StaticResource Label}" /><TextBlock Text="{Binding Container.RuntimeId}" Style="{StaticResource Value}" FontFamily="{StaticResource MonoFont}" MaxWidth="520" /></StackPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Text="Reserved" Style="{StaticResource Label}" />
+                    <TextBlock Style="{StaticResource Value}"><TextBlock.Text><MultiBinding StringFormat="{}CPU {0} · memory {1} MiB"><Binding Path="Container.Cpu" TargetNullValue="—" /><Binding Path="Container.Memory" TargetNullValue="—" /></MultiBinding></TextBlock.Text></TextBlock></StackPanel>
             </StackPanel>
         </DataTemplate>
 
@@ -779,6 +868,8 @@
             <ui:Button Icon="{ui:SymbolIcon HeartPulse24}" Content="Refresh health" Click="OnRefreshHealth" Margin="0,0,6,4" />
             <ui:Button Icon="{ui:SymbolIcon DataLine24}" Content="Refresh metrics &amp; alarms" Click="OnRefreshMetrics" Margin="0,0,6,4" />
             <ui:Button Icon="{ui:SymbolIcon ArrowSync24}" Content="Refresh lists" Click="OnRefreshCatalogs" Margin="0,0,14,4" />
+            <ui:TextBox x:Name="SearchBox" Width="280" Margin="0,0,10,4" PlaceholderText="Search (Ctrl+F): name, id, IP, endpoint, image…"
+                        Icon="{ui:SymbolIcon Search24}" TextChanged="OnSearchChanged" KeyDown="OnSearchKeyDown" />
             <CheckBox x:Name="ProblemsOnly" Content="Problems only" Checked="OnFilterChanged" Unchecked="OnFilterChanged" Margin="0,0,10,4" />
             <CheckBox x:Name="GroupByApp" Content="EB by application" Checked="OnGroupByAppChanged" Unchecked="OnGroupByAppChanged" Margin="0,0,10,4"
                       ToolTip="Show Elastic Beanstalk environments under their application" />
@@ -838,6 +929,10 @@
                             </Grid>
                             <HierarchicalDataTemplate.Triggers>
                                 <DataTrigger Binding="{Binding IsStrong}" Value="True">
+                                    <Setter TargetName="TitleText" Property="FontWeight" Value="SemiBold" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding IsMatch}" Value="True">
+                                    <Setter TargetName="TitleText" Property="Foreground" Value="#FF60CDFF" />
                                     <Setter TargetName="TitleText" Property="FontWeight" Value="SemiBold" />
                                 </DataTrigger>
                             </HierarchicalDataTemplate.Triggers>

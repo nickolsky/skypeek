@@ -350,6 +350,89 @@ public sealed class HealthService
     private static DateTime EventsSince(List<ServiceEvent> events, DateTime now) =>
         events.Count > 0 ? events.Max(e => e.Date).AddMinutes(-2) : now.AddHours(-24);
 
+    /// <summary>One CPU/memory series to analyze; <paramref name="ToPercent"/> converts raw values (e.g. free bytes) to % used.</summary>
+    /// <param name="Inverted">The raw metric falls as usage rises (free memory), so its minimum is the usage peak.</param>
+    private sealed record UsageSource(string Scope, string Metric, string Namespace, string MetricName, IReadOnlyDictionary<string, string> Dimensions,
+        Func<double, double>? ToPercent = null, bool Inverted = false, bool Estimated = false);
+
+    /// <summary>
+    /// Hourly CPU/memory statistics of the resource's nodes over the last <paramref name="days"/> days, read from
+    /// CloudWatch on demand (Skypeek itself keeps only the last hour), with a sizing recommendation.
+    /// </summary>
+    public async Task<UsageReport> AnalyzeUsageAsync(Target target, ResourceStatus resource, int days, CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+        var from = now.AddDays(-days);
+        var sources = new List<UsageSource>();
+        string kind;
+        switch (resource)
+        {
+            case EcsServiceStatus ecs:
+                kind = "ecs";
+                var ecsDims = new Dictionary<string, string> { ["ClusterName"] = ecs.Snapshot.ClusterName, ["ServiceName"] = ecs.Snapshot.ServiceName };
+                sources.Add(new(ecs.Snapshot.ServiceName, "CPU", "AWS/ECS", "CPUUtilization", ecsDims));
+                sources.Add(new(ecs.Snapshot.ServiceName, "Memory", "AWS/ECS", "MemoryUtilization", ecsDims));
+                break;
+            case EbEnvironmentStatus eb:
+                kind = "ec2";
+                var agent = await GetAgentMemoryMetricsAsync(target, ct);
+                foreach (var id in eb.Snapshot.InstanceIds)
+                {
+                    sources.Add(new(id, "CPU", "AWS/EC2", "CPUUtilization", new Dictionary<string, string> { ["InstanceId"] = id }));
+                    if (agent.FirstOrDefault(d => d.Dimensions.TryGetValue("InstanceId", out var i) && i == id) is { } memory)
+                        sources.Add(new(id, "Memory", memory.Namespace, memory.MetricName, memory.Dimensions));
+                }
+                break;
+            case RdsInstanceStatus db:
+                kind = "rds";
+                var dbDims = new Dictionary<string, string> { ["DBInstanceIdentifier"] = db.Snapshot.Identifier };
+                sources.Add(new(db.Snapshot.Identifier, "CPU", "AWS/RDS", "CPUUtilization", dbDims));
+                // RDS reports free memory only; used % is estimated from the instance class size.
+                if (HealthRules.InstanceClassMemoryBytes(db.Snapshot.InstanceClass, null) is { } total)
+                    sources.Add(new(db.Snapshot.Identifier, "Memory", "AWS/RDS", "FreeableMemory", dbDims, v => 100 - v / total * 100, Inverted: true, Estimated: true));
+                if (db.Snapshot.MaxConnections is { } max and > 0)
+                    sources.Add(new(db.Snapshot.Identifier, "Connections", "AWS/RDS", "DatabaseConnections", dbDims, v => v / max * 100,
+                        Estimated: db.Snapshot.MaxConnectionsSource?.StartsWith('≈') == true));
+                break;
+            case CacheStatus cache when cache.Snapshot.Kind != CacheKind.Serverless:
+                kind = "cache";
+                var memcached = cache.Snapshot.Engine == "memcached";
+                foreach (var node in cache.Snapshot.Nodes)
+                {
+                    var dims = new Dictionary<string, string> { ["CacheClusterId"] = node.ClusterId, ["CacheNodeId"] = node.NodeId };
+                    sources.Add(new(node.ClusterId, "CPU", "AWS/ElastiCache", memcached ? "CPUUtilization" : "EngineCPUUtilization", dims));
+                    if (!memcached)
+                        sources.Add(new(node.ClusterId, "Memory", "AWS/ElastiCache", "DatabaseMemoryUsagePercentage", dims));
+                }
+                break;
+            default:
+                return new UsageReport(from, now, [], Provisioning.Unknown, ["Usage analysis is not available for this resource type."], now);
+        }
+
+        var queries = new List<MetricQuery>();
+        for (var i = 0; i < sources.Count; i++)
+            foreach (var stat in new[] { "Average", "Minimum", "Maximum" })
+                queries.Add(new MetricQuery($"u{i}{stat.ToLowerInvariant()}", sources[i].Namespace, sources[i].MetricName, sources[i].Dimensions, 3600, stat));
+        var data = queries.Count == 0
+            ? new Dictionary<string, IReadOnlyList<MetricPoint>>()
+            : await _gateway.GetMetricDataAsync(target, queries, from, now, ct);
+
+        var series = new List<UsageSeries>();
+        for (var i = 0; i < sources.Count; i++)
+        {
+            var source = sources[i];
+            IReadOnlyList<MetricPoint> Points(string stat)
+            {
+                var points = data.GetValueOrDefault($"u{i}{stat}") ?? [];
+                return source.ToPercent is { } f ? points.Select(p => p with { Value = Math.Clamp(f(p.Value), 0, 100) }).ToList() : points;
+            }
+            var (min, max) = source.Inverted ? (Points("maximum"), Points("minimum")) : (Points("minimum"), Points("maximum"));
+            series.Add(UsageAnalysis.Summarize(source.Scope, source.Metric, Points("average"), min, max, source.Estimated));
+        }
+        var (verdict, reasons) = UsageAnalysis.Recommend(series, kind);
+        return new UsageReport(from, now, series, verdict, reasons, DateTime.UtcNow);
+    }
+
     /// <summary>Number of CloudWatch metrics one metrics poll requests for the target (for the cost estimate).</summary>
     public int MetricCount(long targetId)
     {

@@ -15,6 +15,8 @@ public enum NodeKind
     EbEnvironment,
     EcsCluster,
     EcsService,
+    EcsTask,
+    EcsContainer,
     Alarm,
     Message,
     RdsCluster,
@@ -37,10 +39,15 @@ public sealed partial class DashNode : ObservableObject
     public object? Payload { get; init; }
     /// <summary>Small usage bars shown after the title (CPU, memory, connections, disk).</summary>
     public IReadOnlyList<Gauge> Gauges { get; init; } = [];
+    /// <summary>Extra text the tree search matches besides the title and subtitle (ids, endpoints, images, IPs…).</summary>
+    public string? SearchText { get; init; }
     public ObservableCollection<DashNode> Children { get; } = new();
 
     [ObservableProperty] private bool _isExpanded;
     [ObservableProperty] private bool _isSelected;
+
+    /// <summary>Matched the tree search (shown highlighted).</summary>
+    public bool IsMatch { get; set; }
 
     public string? Badge => ProblemCount > 0 ? ProblemCount.ToString() : null;
     public bool IsStrong => Kind is NodeKind.Target or NodeKind.Group;
@@ -137,6 +144,19 @@ public sealed partial class EbApplicationDetail : ObservableObject
     }
 }
 
+/// <summary>An ECS task selected in the tree, with the service it belongs to.</summary>
+public sealed record EcsTaskDetail(EcsServiceStatus Service, EcsTaskInfo Task)
+{
+    public string ConsoleUrl =>
+        $"https://{Service.Region}.console.aws.amazon.com/ecs/v2/clusters/{Uri.EscapeDataString(Service.Snapshot.ClusterName)}/tasks/{Task.TaskId}/configuration?region={Service.Region}";
+}
+
+/// <summary>A container of an ECS task.</summary>
+public sealed record EcsContainerDetail(EcsServiceStatus Service, EcsTaskInfo Task, EcsContainerInfo Container)
+{
+    public string ConsoleUrl => new EcsTaskDetail(Service, Task).ConsoleUrl;
+}
+
 /// <summary>A cache node selected in the tree (the cache itself is the owning resource).</summary>
 public sealed record CacheNodeDetail(CacheStatus Cache, CacheNodeView View);
 
@@ -217,6 +237,7 @@ public static class DashboardTreeBuilder
                 Kind = NodeKind.Target,
                 Title = target.DisplayName,
                 Subtitle = $"{account ?? target.ProfileName} · {target.Region}{(target.Enabled ? "" : " · disabled")}",
+                SearchText = $"{target.ProfileName} {target.ElevatedProfileName} {account}",
                 Payload = BuildTargetDetail(session, target, health, cred, account),
             };
             foreach (var c in kept)
@@ -241,6 +262,8 @@ public static class DashboardTreeBuilder
                        + (env.Level >= HealthLevel.Warn ? env.ReasonText : $"{env.Snapshot.Health} · {env.Snapshot.Status} · {env.Snapshot.VersionLabel}")
                        + (env.Snapshot.IsLatestVersion == false ? " · not latest version" : ""),
             Gauges = Gauge.List(Gauge.For("CPU", env.Cpu), Gauge.For("Mem", env.Memory)),
+            SearchText = string.Join(' ', new[] { env.Snapshot.ApplicationName, env.Snapshot.EnvironmentId, env.Snapshot.Cname, env.Snapshot.VersionLabel }
+                .Concat(env.Snapshot.InstanceIds).Concat(env.Snapshot.InstanceHealth.Select(i => i.PrivateIp))),
             Level = env.Level,
             ProblemCount = env.Level >= HealthLevel.Warn ? 1 : 0,
             Payload = env,
@@ -325,6 +348,7 @@ public static class DashboardTreeBuilder
                     : $"{db.Snapshot.Role} · {db.Snapshot.EngineText} · {db.Snapshot.InstanceClass} · {db.Snapshot.Status}"
                       + (db.Snapshot.ReplicaSource is { } src && !byId.ContainsKey(src) ? $" · replica of {src}" : ""),
                 Gauges = RdsGauges(db),
+                SearchText = $"{db.Snapshot.Address} {db.Snapshot.Arn} {db.Snapshot.ClusterIdentifier} {db.Snapshot.ParameterGroup} {db.Snapshot.ReplicaSource}",
                 Level = db.Level,
                 ProblemCount = db.Level >= HealthLevel.Warn ? 1 : 0,
                 Payload = db,
@@ -356,6 +380,7 @@ public static class DashboardTreeBuilder
                 Key = cluster.ResourceKey,
                 Kind = NodeKind.RdsCluster,
                 Title = cluster.Snapshot.Identifier,
+                SearchText = $"{cluster.Snapshot.WriterEndpoint} {cluster.Snapshot.ReaderEndpoint} {string.Join(' ', cluster.Snapshot.CustomEndpoints)} {cluster.Snapshot.Arn}",
                 Subtitle = cluster.Level >= HealthLevel.Warn ? cluster.ReasonText
                     : $"cluster · {cluster.Snapshot.EngineText} · {cluster.Snapshot.Members.Count} instance(s) · {cluster.Snapshot.Status}"
                       + (cluster.Snapshot.ReplicationSource is not null ? " · replica cluster" : ""),
@@ -418,6 +443,7 @@ public static class DashboardTreeBuilder
                     : $"{snapshot.EngineText} · {snapshot.NodeType} · {snapshot.Status}"
                       + (snapshot.Kind == CacheKind.Serverless ? " · serverless" : snapshot.ClusterMode ? $" · {snapshot.Shards.Count} shard(s)" : $" · {snapshot.Nodes.Count()} node(s)"),
                 Gauges = Gauge.List(Gauge.For("CPU", cache.Cpu), Gauge.For("Mem", cache.Memory)),
+                SearchText = $"{snapshot.PrimaryEndpoint} {snapshot.ReaderEndpoint} {snapshot.ConfigurationEndpoint} {snapshot.Description} {snapshot.Arn} {string.Join(' ', snapshot.Nodes.Select(n => n.ClusterId))}",
                 Level = cache.Level,
                 ProblemCount = cache.Level >= HealthLevel.Warn ? 1 : 0,
                 Payload = cache,
@@ -430,6 +456,7 @@ public static class DashboardTreeBuilder
                 Title = view.Node.ClusterId,
                 Subtitle = $"{view.Node.Role ?? "node"} · {view.Node.Status}{(view.Node.AvailabilityZone is null ? "" : $" · {view.Node.AvailabilityZone}")}",
                 Gauges = Gauge.List(Gauge.For("CPU", view.Metric?.Cpu), Gauge.For("Mem", view.Metric?.Memory)),
+                SearchText = view.Node.Endpoint,
                 Level = view.Level,
                 Payload = new CacheNodeDetail(cache, view),
             };
@@ -484,17 +511,45 @@ public static class DashboardTreeBuilder
             {
                 if (problemsOnly && svc.Level < HealthLevel.Warn)
                     continue;
-                clusterNode.Children.Add(new DashNode
+                var serviceNode = new DashNode
                 {
                     Key = svc.ResourceKey,
                     Kind = NodeKind.EcsService,
                     Title = svc.Snapshot.ServiceName,
                     Subtitle = svc.Level >= HealthLevel.Warn ? svc.ReasonText : $"{svc.Snapshot.Running}/{svc.Snapshot.Desired} tasks",
                     Gauges = Gauge.List(Gauge.For("CPU", svc.Cpu), Gauge.For("Mem", svc.Memory)),
+                    SearchText = $"{cluster.Key} {string.Join(' ', svc.Snapshot.Deployments.Select(d => d.TaskDefinition))}",
                     Level = svc.Level,
                     ProblemCount = svc.Level >= HealthLevel.Warn ? 1 : 0,
                     Payload = svc,
-                });
+                };
+                // Tasks and their containers are shown for context; the service carries the health problem.
+                foreach (var task in svc.Snapshot.Tasks)
+                {
+                    var taskNode = new DashNode
+                    {
+                        Key = $"{svc.ResourceKey}:task:{task.TaskId}",
+                        Kind = NodeKind.EcsTask,
+                        Title = task.TaskId,
+                        Subtitle = task.Summary,
+                        SearchText = $"{task.TaskArn} {task.LaunchType} {task.CapacityProvider} {task.StartedBy}",
+                        Level = task.Level,
+                        Payload = new EcsTaskDetail(svc, task),
+                    };
+                    foreach (var container in task.Containers)
+                        taskNode.Children.Add(new DashNode
+                        {
+                            Key = $"{taskNode.Key}:{container.Name}",
+                            Kind = NodeKind.EcsContainer,
+                            Title = container.Name,
+                            Subtitle = $"{container.Summary} · {container.ImageShort}",
+                            SearchText = $"{container.Image} {container.ImageDigest} {container.RuntimeId}",
+                            Level = container.Level,
+                            Payload = new EcsContainerDetail(svc, task, container),
+                        });
+                    serviceNode.Children.Add(taskNode);
+                }
+                clusterNode.Children.Add(serviceNode);
             }
             if (problemsOnly && clusterNode.Children.Count == 0)
                 continue;
@@ -533,6 +588,7 @@ public static class DashboardTreeBuilder
                 Key = $"{target.Id}:alarm:{alarm.Name}",
                 Kind = NodeKind.Alarm,
                 Title = alarm.Name,
+                SearchText = $"{alarm.Namespace} {alarm.MetricName} {string.Join(' ', alarm.Dimensions.Values)}",
                 Subtitle = alarm.Suppressed ? $"{alarm.Badge} — {alarm.SuppressedReason}" : alarm.Badge,
                 Right = owner,
                 Level = alarm.CountsAsProblem ? HealthLevel.Critical : alarm.Suppressed ? HealthLevel.Unknown : HealthLevel.Ok,
@@ -558,6 +614,45 @@ public static class DashboardTreeBuilder
             // Right column shows "problems/total".
             node.Right = $"{node.ProblemCount}/{total}{(extra is null ? "" : $" · {extra}")}";
         }
+    }
+
+    /// <summary>
+    /// Keeps nodes whose title, subtitle or search text contains every word of the query, plus the path to them.
+    /// A matching node keeps its whole subtree (collapsed); the path to deeper matches is expanded.
+    /// </summary>
+    public static List<DashNode> Filter(IEnumerable<DashNode> nodes, string query)
+    {
+        var words = query.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var kept = new List<DashNode>();
+        if (words.Length == 0)
+            return nodes.ToList();
+        foreach (var node in nodes)
+            if (Prune(node, words))
+                kept.Add(node);
+        return kept;
+    }
+
+    public static bool Matches(DashNode node, IReadOnlyList<string> words)
+    {
+        var text = $"{node.Title} {node.Subtitle} {node.SearchText}";
+        return words.All(w => text.Contains(w, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>True when the node stays; removes non-matching children in place and marks the path open.</summary>
+    private static bool Prune(DashNode node, IReadOnlyList<string> words)
+    {
+        if (Matches(node, words))
+        {
+            node.IsMatch = true;
+            return true;
+        }
+        foreach (var child in node.Children.ToList())
+            if (!Prune(child, words))
+                node.Children.Remove(child);
+        if (node.Children.Count == 0)
+            return false;
+        node.IsExpanded = true;
+        return true;
     }
 
     private static TargetDetail BuildTargetDetail(AppSession session, Target target, TargetHealth? health, ProfileStatus cred, string? account)

@@ -33,6 +33,20 @@ public interface IAwsGateway
     /// <param name="only">Refresh one cache (same kind and id as a previous snapshot).</param>
     Task<IReadOnlyList<CacheSnapshot>> GetCachesAsync(Target target, DateTime eventsSince, CancellationToken ct, CacheSnapshot? only = null);
 
+    /// <summary>EC2 instances (not terminated) with their status checks and scheduled events.</summary>
+    /// <param name="onlyIds">Refresh these instances only.</param>
+    Task<IReadOnlyList<Ec2InstanceSnapshot>> GetEc2InstancesAsync(Target target, CancellationToken ct, IReadOnlyList<string>? onlyIds = null);
+    /// <summary>Application/network/gateway load balancers with their target groups and target health.</summary>
+    /// <param name="onlyArn">Refresh one load balancer.</param>
+    Task<IReadOnlyList<LoadBalancerSnapshot>> GetLoadBalancersAsync(Target target, CancellationToken ct, string? onlyArn = null);
+    /// <summary>Listeners of a load balancer with their rules (conditions and actions as text).</summary>
+    Task<IReadOnlyList<LbListenerInfo>> GetLoadBalancerListenersAsync(Target target, LoadBalancerSnapshot lb, CancellationToken ct);
+
+    /// <summary>VPCs, subnets, network interfaces, Elastic IPs and security groups with their rules.</summary>
+    Task<NetworkSnapshot> GetNetworkAsync(Target target, CancellationToken ct);
+    /// <summary>Re-reads some security groups and their rules (after an edit).</summary>
+    Task<IReadOnlyList<SecurityGroupInfo>> GetSecurityGroupsAsync(Target target, IReadOnlyList<string> groupIds, CancellationToken ct);
+
     /// <summary>The instance's log files (newest first) plus log groups it exports to CloudWatch Logs.</summary>
     Task<IReadOnlyList<LogSource>> GetRdsLogSourcesAsync(Target target, RdsInstanceSnapshot db, CancellationToken ct);
     /// <summary>
@@ -71,6 +85,20 @@ public interface IAwsGateway
     Task TerminateEbInstanceAsync(Target target, EbEnvironmentSnapshot env, string instanceId, CancellationToken ct);
     /// <summary>Starts a new deployment of an ECS service with its current task definition (only ForceNewDeployment is sent).</summary>
     Task ForceNewEcsDeploymentAsync(Target target, EcsServiceSnapshot service, CancellationToken ct);
+
+    /// <summary>Starts one stopped EC2 instance.</summary>
+    Task StartEc2InstanceAsync(Target target, Ec2InstanceSnapshot instance, CancellationToken ct);
+    /// <summary>Stops one EC2 instance (normal shutdown; no force, no hibernation).</summary>
+    Task StopEc2InstanceAsync(Target target, Ec2InstanceSnapshot instance, CancellationToken ct);
+    /// <summary>Reboots one running EC2 instance.</summary>
+    Task RebootEc2InstanceAsync(Target target, Ec2InstanceSnapshot instance, CancellationToken ct);
+
+    /// <summary>Adds one rule with one source to a security group.</summary>
+    Task AddSecurityGroupRuleAsync(Target target, SecurityGroupInfo group, SecurityGroupRuleSpec rule, CancellationToken ct);
+    /// <summary>Changes one existing rule in place (same direction; protocol, ports, source and description may change).</summary>
+    Task UpdateSecurityGroupRuleAsync(Target target, SecurityGroupInfo group, SecurityGroupRuleInfo current, SecurityGroupRuleSpec updated, CancellationToken ct);
+    /// <summary>Deletes one rule of a security group by its rule id.</summary>
+    Task DeleteSecurityGroupRuleAsync(Target target, SecurityGroupInfo group, SecurityGroupRuleInfo rule, CancellationToken ct);
 }
 
 /// <param name="Elevated">Signed with the target's elevated profile.</param>
@@ -130,6 +158,13 @@ public interface IHealthStore
 {
     void Save(long targetId, TargetHealth health);
     IReadOnlyList<TargetHealth> LoadAll();
+}
+
+/// <summary>Cached Network tab data, one snapshot per target (deleted with the target).</summary>
+public interface INetworkStore
+{
+    void Save(long targetId, NetworkSnapshot snapshot);
+    IReadOnlyList<NetworkSnapshot> LoadAll();
 }
 
 public interface IRequestLogStore

@@ -8,7 +8,7 @@
         <ui:TitleBar Title="Suppress health cause" ShowMaximize="False" ShowMinimize="False" />
         <StackPanel Margin="18,2,18,18">
             <TextBlock Style="{StaticResource Body}" TextWrapping="Wrap"
-                       Text="A suppressed cause stays visible (greyed out) but no longer makes the environment unhealthy. If every cause of a Red/Yellow status is suppressed, the environment counts as OK unless something else is wrong (failed deploy, error events, thresholds, alarms)." />
+                       Text="A suppressed cause stays visible (greyed out) but no longer makes the environment or load balancer unhealthy. If every cause is suppressed, it counts as OK unless something else is wrong (failed deploy, error events, thresholds, alarms)." />
             <TextBlock Text="Cause text or pattern (* and ? wildcards; spacing and line breaks are ignored)" Style="{StaticResource Caption}" Margin="0,12,0,4" />
             <TextBox x:Name="Pattern" FontFamily="{StaticResource MonoFont}" TextWrapping="Wrap" AcceptsReturn="False" MinHeight="54" />
             <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,4,0,0"

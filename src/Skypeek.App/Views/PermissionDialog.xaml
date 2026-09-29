@@ -35,7 +35,7 @@
 
             <StackPanel x:Name="ConfirmPanel" Margin="0,14,0,0" Visibility="Collapsed">
                 <TextBlock x:Name="ConfirmLabel" Style="{StaticResource Body}" Foreground="#FFFF7B7F" TextWrapping="Wrap"
-                           Text="This cannot be undone. Type or paste this to confirm:" />
+                           Text="This needs extra care. Type or paste this to confirm:" />
                 <Border Style="{StaticResource Badge}" Background="#22FFFFFF" Padding="8,3" Margin="0,6,0,0" HorizontalAlignment="Left">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock x:Name="PhraseText" Style="{StaticResource Body}" FontFamily="{StaticResource MonoFont}" FontWeight="SemiBold"

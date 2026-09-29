@@ -84,7 +84,8 @@ public class ResourceRefreshTests
         public Task<SecretValueResult> GetParameterValueAsync(Target target, string name, bool decrypt, bool elevated, CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlyList<EbEnvironmentSnapshot>> GetEbEnvironmentsAsync(Target target, DateTime eventsSince, CancellationToken ct, string? onlyEnvironment = null) => throw new NotSupportedException();
         public Task<IReadOnlyList<MetricDescriptor>> ListMetricsAsync(Target target, string ns, string metricName, CancellationToken ct) => throw new NotSupportedException();
-        public Task<AlarmsResult> GetAlarmsAsync(Target target, DateTime historySince, CancellationToken ct) => throw new NotSupportedException();
+        public List<AlarmInfo> Alarms { get; } = [];
+        public Task<AlarmsResult> GetAlarmsAsync(Target target, DateTime historySince, CancellationToken ct) => Task.FromResult(new AlarmsResult { Alarms = Alarms });
         public Task<IReadOnlyList<LogSource>> GetEcsLogSourcesAsync(Target target, EcsServiceSnapshot service, CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlyList<LogSource>> GetEbLogSourcesAsync(Target target, string environmentName, CancellationToken ct) => throw new NotSupportedException();
         public Task<LogPage> GetLogEventsAsync(Target target, LogSource source, DateTime startUtc, DateTime endUtc, string? filterPattern, string? nextToken, CancellationToken ct) => throw new NotSupportedException();
@@ -98,6 +99,149 @@ public class ResourceRefreshTests
         public Task<IReadOnlyList<EbApplicationVersion>> GetEbApplicationVersionsAsync(Target target, string application, CancellationToken ct) => throw new NotSupportedException();
         public Task<IReadOnlyList<LogSource>> GetRdsLogSourcesAsync(Target target, RdsInstanceSnapshot db, CancellationToken ct) => throw new NotSupportedException();
         public Task<RdsLogPortion> DownloadRdsLogAsync(Target target, string instanceId, string fileName, string? marker, int? lines, CancellationToken ct) => throw new NotSupportedException();
+
+        public List<Ec2InstanceSnapshot> Instances { get; } = [];
+        public List<LoadBalancerSnapshot> LoadBalancers { get; } = [];
+
+        public Task<IReadOnlyList<Ec2InstanceSnapshot>> GetEc2InstancesAsync(Target target, CancellationToken ct, IReadOnlyList<string>? onlyIds = null)
+        {
+            Calls.Add($"ec2:{string.Join(",", onlyIds ?? [])}");
+            return Task.FromResult<IReadOnlyList<Ec2InstanceSnapshot>>(Instances.Where(i => onlyIds is null || onlyIds.Contains(i.InstanceId)).ToList());
+        }
+
+        public Task<IReadOnlyList<LoadBalancerSnapshot>> GetLoadBalancersAsync(Target target, CancellationToken ct, string? onlyArn = null)
+        {
+            Calls.Add($"elb:{onlyArn}");
+            return Task.FromResult<IReadOnlyList<LoadBalancerSnapshot>>(LoadBalancers.Where(l => onlyArn is null || l.Arn == onlyArn).ToList());
+        }
+
+        public Task<IReadOnlyList<LbListenerInfo>> GetLoadBalancerListenersAsync(Target target, LoadBalancerSnapshot lb, CancellationToken ct) => throw new NotSupportedException();
+        public Task<NetworkSnapshot> GetNetworkAsync(Target target, CancellationToken ct) => throw new NotSupportedException();
+        public Task<IReadOnlyList<SecurityGroupInfo>> GetSecurityGroupsAsync(Target target, IReadOnlyList<string> groupIds, CancellationToken ct) => throw new NotSupportedException();
+        public Task StartEc2InstanceAsync(Target target, Ec2InstanceSnapshot instance, CancellationToken ct) => throw new NotSupportedException();
+        public Task StopEc2InstanceAsync(Target target, Ec2InstanceSnapshot instance, CancellationToken ct) => throw new NotSupportedException();
+        public Task RebootEc2InstanceAsync(Target target, Ec2InstanceSnapshot instance, CancellationToken ct) => throw new NotSupportedException();
+        public Task AddSecurityGroupRuleAsync(Target target, SecurityGroupInfo group, SecurityGroupRuleSpec rule, CancellationToken ct) => throw new NotSupportedException();
+        public Task UpdateSecurityGroupRuleAsync(Target target, SecurityGroupInfo group, SecurityGroupRuleInfo current, SecurityGroupRuleSpec updated, CancellationToken ct) => throw new NotSupportedException();
+        public Task DeleteSecurityGroupRuleAsync(Target target, SecurityGroupInfo group, SecurityGroupRuleInfo rule, CancellationToken ct) => throw new NotSupportedException();
+    }
+
+    private static Ec2InstanceSnapshot Instance(string id, string state = "running", Dictionary<string, string>? tags = null, string systemStatus = "ok") =>
+        new() { InstanceId = id, State = state, InstanceType = "t3.small", PrivateIp = "10.0.1.5", Tags = tags ?? new() { ["Name"] = id }, SystemStatus = systemStatus, InstanceStatus = "ok" };
+
+    private static (MemoryStores, SettingsService, FakeGateway, HealthService, Target) Ec2Setup()
+    {
+        var stores = new MemoryStores();
+        var settings = new SettingsService(stores);
+        var gateway = new FakeGateway { PointsPerMetric = 20 };
+        gateway.Instances.Add(Instance("i-web"));
+        gateway.Instances.Add(Instance("i-eb", tags: new() { ["elasticbeanstalk:environment-name"] = "shop-prod" }));
+        gateway.Instances.Add(Instance("i-off", "stopped"));
+        var health = new HealthService(gateway, stores, settings, new Quiet());
+        var target = stores.Targets[0];
+        target.EcsEnabled = target.RdsEnabled = target.CacheEnabled = false;
+        return (stores, settings, gateway, health, target);
+    }
+
+    [Fact]
+    public async Task Ec2_lists_standalone_instances_and_reads_metrics_only_for_running_ones()
+    {
+        var (_, settings, gateway, health, target) = Ec2Setup();
+
+        await health.PollHealthAsync(target, CancellationToken.None);
+        Assert.Equal(["i-off", "i-web"], health.Get(1)!.Ec2.Select(e => e.Snapshot.InstanceId).OrderBy(x => x));
+        await health.PollMetricsAsync(target, CancellationToken.None);
+        Assert.Equal(["i-web"], gateway.LastQueries.Where(q => q.Namespace == "AWS/EC2").Select(q => q.Dimensions["InstanceId"]));
+        var web = health.Get(1)!.Ec2.Single(e => e.Snapshot.InstanceId == "i-web");
+        Assert.Equal(55, web.Cpu?.Current);
+        Assert.Equal(HealthLevel.Ok, web.Level);
+        Assert.Null(health.Get(1)!.Ec2.Single(e => e.Snapshot.IsStopped).Cpu);
+
+        // The option to list EB-managed instances too.
+        settings.Settings.Ec2IncludeEbInstances = true;
+        await health.PollHealthAsync(target, CancellationToken.None);
+        Assert.Contains(health.Get(1)!.Ec2, e => e.Snapshot.InstanceId == "i-eb");
+    }
+
+    [Fact]
+    public async Task Hidden_resources_are_not_problems_and_cost_no_metric_queries()
+    {
+        var (_, settings, gateway, health, target) = Ec2Setup();
+        gateway.Instances[0] = Instance("i-web", systemStatus: "impaired");
+        await health.PollHealthAsync(target, CancellationToken.None);
+        var web = health.Get(1)!.Ec2.Single(e => e.Snapshot.InstanceId == "i-web");
+        Assert.Equal(HealthLevel.Critical, web.Level);
+        Assert.True(web.IsProblem);
+
+        settings.Settings.HiddenResources.Add(web.ResourceKey);
+        health.Reevaluate();
+        web = health.Get(1)!.Ec2.Single(e => e.Snapshot.InstanceId == "i-web");
+        Assert.True(web.IsHidden);
+        Assert.False(web.IsProblem);
+        var tray = TrayStatusCalculator.Compute(settings.Targets, health.Snapshot(), [], (_, _) => null, warningsTurnIconRed: true);
+        Assert.DoesNotContain(tray.Problems, p => p.Resource.Contains("i-web"));
+
+        await health.PollMetricsAsync(target, CancellationToken.None);
+        Assert.DoesNotContain(gateway.LastQueries, q => q.Dimensions.TryGetValue("InstanceId", out var id) && id == "i-web");
+
+        // A single refresh of a hidden resource still reads its metrics.
+        gateway.Calls.Clear();
+        await health.RefreshResourceAsync(target, web, CancellationToken.None);
+        Assert.Equal(["ec2:i-web", "metrics:1"], gateway.Calls);
+    }
+
+    private static LoadBalancerSnapshot Alb(params (string Name, string[] States)[] groups) => new()
+    {
+        Name = "web-alb",
+        Arn = "arn:aws:elasticloadbalancing:us-east-1:111122223333:loadbalancer/app/web-alb/abc123",
+        Type = "application",
+        State = "active",
+        TargetGroups = groups.Select(g => new TargetGroupInfo
+        {
+            Name = g.Name,
+            Arn = $"arn:aws:elasticloadbalancing:us-east-1:111122223333:targetgroup/{g.Name}/def456",
+            Targets = g.States.Select((s, n) => new LbTargetInfo { Id = $"i-{n}", Port = 80, State = s, Reason = s == "healthy" ? null : "Target.ResponseCodeMismatch" }).ToList(),
+        }).ToList(),
+    };
+
+    [Fact]
+    public async Task Load_balancer_unhealthy_targets_warn_none_healthy_is_critical_and_causes_can_be_suppressed()
+    {
+        var stores = new MemoryStores();
+        var settings = new SettingsService(stores);
+        var gateway = new FakeGateway();
+        gateway.LoadBalancers.Add(Alb(("api", ["healthy", "unhealthy", "healthy"]), ("admin", ["healthy"])));
+        var health = new HealthService(gateway, stores, settings, new Quiet());
+        var target = stores.Targets[0];
+        target.EcsEnabled = target.RdsEnabled = target.CacheEnabled = target.Ec2Enabled = false;
+
+        await health.PollHealthAsync(target, CancellationToken.None);
+        var lb = health.Get(1)!.LoadBalancers.Single();
+        Assert.Equal(HealthLevel.Warn, lb.Level);
+        Assert.Contains(lb.Reasons, r => r.StartsWith("Target group api has unhealthy targets (2/3 healthy", StringComparison.Ordinal));
+
+        gateway.LoadBalancers[0] = Alb(("api", ["unhealthy", "unhealthy"]), ("admin", ["healthy"]));
+        await health.PollHealthAsync(target, CancellationToken.None);
+        lb = health.Get(1)!.LoadBalancers.Single();
+        Assert.Equal(HealthLevel.Critical, lb.Level);
+
+        settings.Settings.SuppressedCauses.Add(new CauseSuppression("Target group api *", target.Id, "web-alb", DateTime.UtcNow));
+        health.Reevaluate();
+        lb = health.Get(1)!.LoadBalancers.Single();
+        Assert.Equal(HealthLevel.Ok, lb.Level);
+        Assert.True(lb.CauseItems.Single().Suppressed);
+
+        // ALB traffic metrics use the ARN suffix; the alarm on a target group belongs to the load balancer.
+        gateway.Alarms.Add(new AlarmInfo
+        {
+            Name = "api-unhealthy", State = "ALARM", Namespace = "AWS/ApplicationELB", MetricName = "UnHealthyHostCount",
+            Dimensions = new() { ["TargetGroup"] = "targetgroup/api/def456", ["LoadBalancer"] = "app/web-alb/abc123" },
+        });
+        await health.PollMetricsAsync(target, CancellationToken.None);
+        Assert.All(gateway.LastQueries, q => Assert.Equal("app/web-alb/abc123", q.Dimensions["LoadBalancer"]));
+        lb = health.Get(1)!.LoadBalancers.Single();
+        Assert.Equal("api-unhealthy", lb.Alarms.Single().Name);
+        Assert.Equal(HealthLevel.Critical, lb.Level);
     }
 
     [Fact]

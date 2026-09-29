@@ -39,6 +39,8 @@ public enum JobKind
     Catalog,
     Health,
     Metrics,
+    /// <summary>Network tab inventory (VPCs, subnets, interfaces, security groups).</summary>
+    Network,
 }
 
 public sealed record SyncRun(long TargetId, string Feature, DateTime StartedAt, DateTime FinishedAt, bool Success, int ItemCount, string? Error);

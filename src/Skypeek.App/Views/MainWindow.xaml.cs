@@ -13,17 +13,21 @@ public partial class MainWindow
     private readonly CatalogView _catalog;
     private readonly DashboardView _dashboard;
     private readonly LogsView _logs;
+    private readonly NetworkView _network;
+    private readonly AppSession _session;
     private readonly RequestLogView _log;
     private readonly SettingsView _settings;
 
     public MainWindow(AppSession session)
     {
         InitializeComponent();
+        _session = session;
         TitleBarControl.Title = AppInfo.Title;
         Icon = IconRenderer.WindowIcon();
         CatalogTab.Content = _catalog = new CatalogView(session);
         DashboardTab.Content = _dashboard = new DashboardView(session);
         LogsTab.Content = _logs = new LogsView(session);
+        NetworkTab.Content = _network = new NetworkView(session);
         LogTab.Content = _log = new RequestLogView(session.Log);
         SettingsTab.Content = _settings = new SettingsView(session);
     }
@@ -59,6 +63,23 @@ public partial class MainWindow
         _logs.Open(target, resource, focus);
     }
 
+    /// <summary>A security group chip on the dashboard: show it on the Network tab.</summary>
+    public void OpenNetwork(Core.Models.Target target, string securityGroupId)
+    {
+        Tabs.SelectedItem = NetworkTab;
+        _network.Open(target, securityGroupId);
+    }
+
+    /// <summary>An EC2 instance from the Network tab or a load balancer target: select it (or its EB environment) on the dashboard.</summary>
+    public bool RevealInstance(Core.Models.Target target, string instanceId)
+    {
+        if (_session.Health.Get(target.Id) is not { } health || DashboardTreeBuilder.InstanceKey(health, instanceId) is not { } key)
+            return false;
+        Tabs.SelectedItem = DashboardTab;
+        _dashboard.Reveal(key);
+        return true;
+    }
+
     public void OnStatusChanged(TrayStatus status)
     {
         DashboardTab.Header = status.Count == 0 ? "Dashboard" : $"Dashboard ({status.Count})";
@@ -71,7 +92,9 @@ public partial class MainWindow
     {
         _catalog.Wipe();
         _logs.Wipe();
+        _network.Wipe();
         UsagePanel.ClearCache();
+        ListenersPanel.ClearCache();
         Hide();
     }
 
@@ -119,6 +142,7 @@ public partial class MainWindow
     {
         _catalog.Detach();
         _dashboard.Detach();
+        _network.Detach();
         _log.Detach();
         base.OnClosed(e);
     }

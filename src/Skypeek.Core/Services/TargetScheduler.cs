@@ -66,9 +66,9 @@ public sealed class TargetScheduler : IDisposable
                 state.LastSuccess = run.FinishedAt;
         }
 
-        // Health and metrics are cheap and should be fresh after a restart.
+        // Health and metrics are cheap and should be fresh after a restart; lists and network data are cached.
         foreach (var ((_, kind), state) in _jobs)
-            if (kind != JobKind.Catalog)
+            if (kind is JobKind.Health or JobKind.Metrics)
                 state.ForceDue = true;
 
         _timer = new Timer(_ => Tick(), null, TimeSpan.FromSeconds(2), TickInterval);
@@ -80,6 +80,7 @@ public sealed class TargetScheduler : IDisposable
     {
         JobKind.Catalog => t.SecretsEnabled || t.ParamsEnabled,
         JobKind.Health or JobKind.Metrics => t.HealthEnabled,
+        JobKind.Network => t.NetworkEnabled,
         _ => false,
     };
 
@@ -88,6 +89,7 @@ public sealed class TargetScheduler : IDisposable
         JobKind.Catalog => t.CatalogIntervalMinutes,
         JobKind.Health => t.HealthIntervalMinutes,
         JobKind.Metrics => t.MetricsIntervalMinutes,
+        JobKind.Network => t.NetworkIntervalMinutes,
         _ => 0,
     };
 

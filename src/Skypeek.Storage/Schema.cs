@@ -47,6 +47,9 @@ internal static class Schema
         """
         ALTER TABLE request_log ADD COLUMN elevated INTEGER NOT NULL DEFAULT 0;
         """,
+        """
+        CREATE TABLE network_snapshots (target_id INTEGER PRIMARY KEY, json TEXT NOT NULL, updated_at TEXT NOT NULL);
+        """,
     ];
 
     public static void Migrate(SqliteConnection connection)

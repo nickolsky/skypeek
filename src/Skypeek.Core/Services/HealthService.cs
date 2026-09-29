@@ -88,6 +88,8 @@ public sealed class HealthService
             Rds = previous?.Rds ?? [],
             RdsClusters = previous?.RdsClusters ?? [],
             Caches = previous?.Caches ?? [],
+            Ec2 = previous?.Ec2 ?? [],
+            LoadBalancers = previous?.LoadBalancers ?? [],
         };
         var since = previous?.HealthUpdated?.AddMinutes(-2) ?? now.AddHours(-24);
 
@@ -164,6 +166,44 @@ public sealed class HealthService
             next.Caches = [];
         }
 
+        if (target.Ec2Enabled)
+        {
+            try
+            {
+                var includeEb = _settings.Settings.Ec2IncludeEbInstances;
+                var instances = await _gateway.GetEc2InstancesAsync(target, ct);
+                next.Ec2 = instances
+                    .Where(i => includeEb || i.EbEnvironment is null)
+                    .Select(i => BuildEc2(target, i, previous?.Ec2.FirstOrDefault(p => p.Snapshot.InstanceId == i.InstanceId), now))
+                    .ToList();
+            }
+            catch (Exception ex) when (ex is not CredentialsUnavailableException and not OperationCanceledException)
+            {
+                errors.Add($"EC2: {ex.Message}");
+            }
+        }
+        else
+        {
+            next.Ec2 = [];
+        }
+
+        if (target.ElbEnabled)
+        {
+            try
+            {
+                var lbs = await _gateway.GetLoadBalancersAsync(target, ct);
+                next.LoadBalancers = lbs.Select(lb => BuildLoadBalancer(target, lb, previous?.LoadBalancers.FirstOrDefault(p => p.Snapshot.Arn == lb.Arn), now)).ToList();
+            }
+            catch (Exception ex) when (ex is not CredentialsUnavailableException and not OperationCanceledException)
+            {
+                errors.Add($"Load balancers: {ex.Message}");
+            }
+        }
+        else
+        {
+            next.LoadBalancers = [];
+        }
+
         next.HealthUpdated = now;
         next.HealthError = errors.Count > 0 ? string.Join("; ", errors) : null;
         RecomputeAll(target, next);
@@ -193,7 +233,7 @@ public sealed class HealthService
         var now = DateTime.UtcNow;
         var errors = new List<string>();
 
-        var (queries, bindings) = await BuildMetricQueriesAsync(target, health, ct);
+        var (queries, bindings) = await BuildMetricQueriesAsync(target, health, ct, skipHidden: true);
         IReadOnlyDictionary<string, IReadOnlyList<MetricPoint>> data = new Dictionary<string, IReadOnlyList<MetricPoint>>();
         if (queries.Count > 0)
         {
@@ -311,6 +351,28 @@ public sealed class HealthService
                 single.Caches = [fresh];
                 break;
             }
+            case Ec2InstanceStatus ec2:
+            {
+                var prev = health.Ec2.FirstOrDefault(e => e.ResourceKey == ec2.ResourceKey) ?? ec2;
+                var instances = await _gateway.GetEc2InstancesAsync(target, ct, [ec2.Snapshot.InstanceId]);
+                if (instances.FirstOrDefault() is not { } snapshot)
+                    throw new InvalidOperationException($"{ec2.Snapshot.InstanceId} was not found (terminated?).");
+                var fresh = BuildEc2(target, snapshot, prev, now);
+                fresh.Alarms = prev.Alarms;
+                single.Ec2 = [fresh];
+                break;
+            }
+            case LoadBalancerStatus lb:
+            {
+                var prev = health.LoadBalancers.FirstOrDefault(e => e.ResourceKey == lb.ResourceKey) ?? lb;
+                var lbs = await _gateway.GetLoadBalancersAsync(target, ct, lb.Snapshot.Arn);
+                if (lbs.FirstOrDefault() is not { } snapshot)
+                    throw new InvalidOperationException($"{lb.Snapshot.Name} was not found (deleted?).");
+                var fresh = BuildLoadBalancer(target, snapshot, prev, now);
+                fresh.Alarms = prev.Alarms;
+                single.LoadBalancers = [fresh];
+                break;
+            }
             default:
                 return 0;
         }
@@ -333,6 +395,8 @@ public sealed class HealthService
             Rds = Merge(health.Rds, single.Rds),
             RdsClusters = Merge(health.RdsClusters, single.RdsClusters),
             Caches = Merge(health.Caches, single.Caches),
+            Ec2 = Merge(health.Ec2, single.Ec2),
+            LoadBalancers = Merge(health.LoadBalancers, single.LoadBalancers),
             OtherAlarms = health.OtherAlarms,
             HealthUpdated = health.HealthUpdated,
             MetricsUpdated = health.MetricsUpdated,
@@ -383,6 +447,16 @@ public sealed class HealthService
                         sources.Add(new(id, "Memory", memory.Namespace, memory.MetricName, memory.Dimensions));
                 }
                 break;
+            case Ec2InstanceStatus ec2:
+            {
+                kind = "ec2";
+                var id = ec2.Snapshot.InstanceId;
+                sources.Add(new(id, "CPU", "AWS/EC2", "CPUUtilization", new Dictionary<string, string> { ["InstanceId"] = id }));
+                var agentMetrics = await GetAgentMemoryMetricsAsync(target, ct);
+                if (agentMetrics.FirstOrDefault(d => d.Dimensions.TryGetValue("InstanceId", out var i) && i == id) is { } memory)
+                    sources.Add(new(id, "Memory", memory.Namespace, memory.MetricName, memory.Dimensions));
+                break;
+            }
             case RdsInstanceStatus db:
                 kind = "rds";
                 var dbDims = new Dictionary<string, string> { ["DBInstanceIdentifier"] = db.Snapshot.Identifier };
@@ -441,7 +515,9 @@ public sealed class HealthService
         return h.Ecs.Count * 2
                + h.Eb.Sum(e => e.Snapshot.InstanceIds.Count * (e.Instances.Any(i => i.Memory is not null) ? 2 : 1))
                + h.Rds.Sum(r => RdsMetricNames(r.Snapshot).Count())
-               + h.Caches.Sum(c => c.Snapshot.Kind == CacheKind.Serverless ? 2 : c.Snapshot.Nodes.Count() * 5);
+               + h.Caches.Sum(c => c.Snapshot.Kind == CacheKind.Serverless ? 2 : c.Snapshot.Nodes.Count() * 5)
+               + h.Ec2.Where(e => e.Snapshot.IsRunning && !e.IsHidden).Sum(e => e.Memory is not null ? 2 : 1)
+               + h.LoadBalancers.Where(l => !l.IsHidden).Sum(l => LoadBalancerMetricNames(l.Snapshot).Count());
     }
 
     /// <summary>Re-evaluates stored data with the current thresholds and alarm suppressions (after settings change).</summary>
@@ -477,6 +553,12 @@ public sealed class HealthService
                 if (db.Memory is { } conn) db.Memory = HealthRules.EvaluateMetric(conn.MetricName, conn.Points, th.MemWarn, th.MemCritical, settings.SustainedMinutes, now);
                 var (storageWarn, storageCritical) = HealthRules.ResolveStorageThresholds(settings, db.ResourceKey);
                 if (db.StorageUsed is { } st) db.StorageUsed = HealthRules.EvaluateMetric(st.MetricName, st.Points, storageWarn, storageCritical, settings.SustainedMinutes, now);
+            }
+            foreach (var ec2 in h.Ec2)
+            {
+                var th = HealthRules.ResolveThresholds(settings, target, ec2);
+                if (ec2.Cpu is { } cpu) ec2.Cpu = HealthRules.EvaluateMetric(cpu.MetricName, cpu.Points, th.CpuWarn, th.CpuCritical, settings.SustainedMinutes, now);
+                if (ec2.Memory is { } mem) ec2.Memory = HealthRules.EvaluateMetric(mem.MetricName, mem.Points, th.MemWarn, th.MemCritical, settings.SustainedMinutes, now);
             }
             foreach (var cache in h.Caches)
             {
@@ -606,6 +688,45 @@ public sealed class HealthService
         };
     }
 
+    private static Ec2InstanceStatus BuildEc2(Target target, Ec2InstanceSnapshot instance, Ec2InstanceStatus? prev, DateTime now)
+    {
+        var (level, reasons) = HealthRules.EvaluateEc2(instance);
+        return new Ec2InstanceStatus
+        {
+            TargetId = target.Id,
+            TargetName = target.DisplayName,
+            Region = target.Region,
+            Snapshot = instance,
+            BaseLevel = level,
+            BaseReasons = reasons,
+            // A stopped instance has no current load.
+            Cpu = instance.IsRunning ? prev?.Cpu : null,
+            Memory = instance.IsRunning ? prev?.Memory : null,
+            Alarms = prev?.Alarms ?? [],
+            RefreshedUtc = now,
+        };
+    }
+
+    private static LoadBalancerStatus BuildLoadBalancer(Target target, LoadBalancerSnapshot lb, LoadBalancerStatus? prev, DateTime now)
+    {
+        var (level, reasons) = HealthRules.EvaluateLoadBalancer(lb);
+        return new LoadBalancerStatus
+        {
+            TargetId = target.Id,
+            TargetName = target.DisplayName,
+            Region = target.Region,
+            Snapshot = lb,
+            BaseLevel = level,
+            BaseReasons = reasons,
+            RequestCount = prev?.RequestCount,
+            Elb5xxCount = prev?.Elb5xxCount,
+            Target5xxCount = prev?.Target5xxCount,
+            ActiveFlows = prev?.ActiveFlows,
+            Alarms = prev?.Alarms ?? [],
+            RefreshedUtc = now,
+        };
+    }
+
     private async Task<EcsServiceStatus> BuildEcsAsync(Target target, EcsServiceSnapshot svc, EcsServiceStatus? prev, DateTime now, CancellationToken ct)
     {
         var (level, reasons) = HealthRules.EvaluateEcs(svc, now);
@@ -643,6 +764,24 @@ public sealed class HealthService
         EcsCpu, EcsMemory, Ec2Cpu, Ec2Memory,
         RdsCpu, RdsConnections, RdsFreeStorage, RdsFreeableMemory, RdsReplicaLag,
         CacheCpu, CacheMemory, CacheConnections, CacheEvictions, CacheHitRate, CacheReplicationLag,
+        InstanceCpu, InstanceMemory,
+        LbRequests, LbElb5xx, LbTarget5xx, LbActiveFlows,
+    }
+
+    /// <summary>Traffic metrics per load balancer type (counts over the last hour, not thresholded).</summary>
+    private static IEnumerable<(string Metric, MetricSlot Slot, string Stat)> LoadBalancerMetricNames(LoadBalancerSnapshot lb)
+    {
+        switch (lb.Type)
+        {
+            case "application":
+                yield return ("RequestCount", MetricSlot.LbRequests, "Sum");
+                yield return ("HTTPCode_ELB_5XX_Count", MetricSlot.LbElb5xx, "Sum");
+                yield return ("HTTPCode_Target_5XX_Count", MetricSlot.LbTarget5xx, "Sum");
+                break;
+            case "network":
+                yield return ("ActiveFlowCount", MetricSlot.LbActiveFlows, "Average");
+                break;
+        }
     }
 
     /// <param name="InstanceId">EC2 instance id, or "cluster|node" for a cache node.</param>
@@ -662,13 +801,16 @@ public sealed class HealthService
             yield return ("AuroraReplicaLag", MetricSlot.RdsReplicaLag);
     }
 
-    private async Task<(List<MetricQuery>, Dictionary<string, Binding>)> BuildMetricQueriesAsync(Target target, TargetHealth health, CancellationToken ct)
+    /// <param name="skipHidden">Target-wide polls skip resources hidden from the dashboard (no cost); a single refresh does not.</param>
+    private async Task<(List<MetricQuery>, Dictionary<string, Binding>)> BuildMetricQueriesAsync(Target target, TargetHealth health, CancellationToken ct, bool skipHidden = false)
     {
         var queries = new List<MetricQuery>();
         var bindings = new Dictionary<string, Binding>();
 
         void Add(string ns, string metric, IReadOnlyDictionary<string, string> dims, Binding binding, string stat = "Average")
         {
+            if (skipHidden && binding.Resource.IsHidden)
+                return;
             var id = $"m{queries.Count}";
             queries.Add(new MetricQuery(id, ns, metric, dims, Stat: stat));
             bindings[id] = binding;
@@ -715,13 +857,35 @@ public sealed class HealthService
             Add("AWS/ECS", "MemoryUtilization", dims, new Binding(ecs, MetricSlot.EcsMemory, null));
         }
 
-        var instanceOwners = new Dictionary<string, EbEnvironmentStatus>();
+        foreach (var lb in health.LoadBalancers)
+        {
+            var dims = new Dictionary<string, string> { ["LoadBalancer"] = lb.Snapshot.ArnSuffix };
+            foreach (var (metric, slot, stat) in LoadBalancerMetricNames(lb.Snapshot))
+                Add(lb.Snapshot.Namespace, metric, dims, new Binding(lb, slot, null), stat);
+        }
+
+        // EC2 instances: of EB environments, and standalone ones (running only).
+        var instanceOwners = new Dictionary<string, List<(ResourceStatus Owner, MetricSlot Memory)>>();
+        void Own(string id, ResourceStatus owner, MetricSlot memory)
+        {
+            if (skipHidden && owner.IsHidden)
+                return;
+            if (!instanceOwners.TryGetValue(id, out var list))
+                instanceOwners[id] = list = [];
+            list.Add((owner, memory));
+        }
         foreach (var eb in health.Eb)
             foreach (var id in eb.Snapshot.InstanceIds)
             {
-                instanceOwners[id] = eb;
+                Own(id, eb, MetricSlot.Ec2Memory);
                 Add("AWS/EC2", "CPUUtilization", new Dictionary<string, string> { ["InstanceId"] = id }, new Binding(eb, MetricSlot.Ec2Cpu, id));
             }
+        foreach (var ec2 in health.Ec2.Where(e => e.Snapshot.IsRunning))
+        {
+            var id = ec2.Snapshot.InstanceId;
+            Own(id, ec2, MetricSlot.InstanceMemory);
+            Add("AWS/EC2", "CPUUtilization", new Dictionary<string, string> { ["InstanceId"] = id }, new Binding(ec2, MetricSlot.InstanceCpu, id));
+        }
 
         if (instanceOwners.Count > 0)
         {
@@ -729,9 +893,11 @@ public sealed class HealthService
             var agentMetrics = await GetAgentMemoryMetricsAsync(target, ct);
             foreach (var descriptor in agentMetrics)
             {
-                if (descriptor.Dimensions.TryGetValue("InstanceId", out var id) && instanceOwners.TryGetValue(id, out var owner)
-                    && !bindings.Values.Any(b => b.Slot == MetricSlot.Ec2Memory && b.InstanceId == id))
-                    Add(descriptor.Namespace, descriptor.MetricName, descriptor.Dimensions, new Binding(owner, MetricSlot.Ec2Memory, id));
+                if (!descriptor.Dimensions.TryGetValue("InstanceId", out var id) || !instanceOwners.TryGetValue(id, out var owners))
+                    continue;
+                foreach (var (owner, slot) in owners)
+                    if (!bindings.Values.Any(b => b.Slot == slot && b.InstanceId == id && ReferenceEquals(b.Resource, owner)))
+                        Add(descriptor.Namespace, descriptor.MetricName, descriptor.Dimensions, new Binding(owner, slot, id));
             }
         }
 
@@ -771,6 +937,27 @@ public sealed class HealthService
             if (binding.Resource is CacheStatus cacheStatus)
             {
                 ApplyCacheMetric(cacheStatus, binding, points, HealthRules.ResolveThresholds(settings, target, cacheStatus), settings, now);
+                continue;
+            }
+            if (binding.Resource is LoadBalancerStatus lb)
+            {
+                double? Sum() => points.Count == 0 ? 0 : points.Sum(p => p.Value);
+                switch (binding.Slot)
+                {
+                    case MetricSlot.LbRequests: lb.RequestCount = Sum(); break;
+                    case MetricSlot.LbElb5xx: lb.Elb5xxCount = Sum(); break;
+                    case MetricSlot.LbTarget5xx: lb.Target5xxCount = Sum(); break;
+                    case MetricSlot.LbActiveFlows: lb.ActiveFlows = Last(points); break;
+                }
+                continue;
+            }
+            if (binding.Resource is Ec2InstanceStatus ec2)
+            {
+                var limits = HealthRules.ResolveThresholds(settings, target, ec2);
+                if (binding.Slot == MetricSlot.InstanceCpu)
+                    ec2.Cpu = HealthRules.EvaluateMetric("CPU", points, limits.CpuWarn, limits.CpuCritical, settings.SustainedMinutes, now);
+                else
+                    ec2.Memory = HealthRules.EvaluateMetric("Memory", points, limits.MemWarn, limits.MemCritical, settings.SustainedMinutes, now);
                 continue;
             }
             var th = HealthRules.ResolveThresholds(settings, target, binding.Resource);
@@ -896,6 +1083,18 @@ public sealed class HealthService
             cache.Alarms = alarms.Where(a => HealthRules.AlarmMatchesCache(a, cache.Snapshot)).ToList();
             matched.UnionWith(cache.Alarms.Select(a => a.Name));
         }
+        foreach (var lb in health.LoadBalancers)
+        {
+            lb.Alarms = alarms.Where(a => HealthRules.AlarmMatchesLoadBalancer(a, lb.Snapshot)).ToList();
+            matched.UnionWith(lb.Alarms.Select(a => a.Name));
+        }
+        // EB nodes listed here too keep their alarms on the environment, so they are not counted twice.
+        var ebAlarms = health.Eb.SelectMany(e => e.Alarms).Select(a => a.Name).ToHashSet();
+        foreach (var ec2 in health.Ec2)
+        {
+            ec2.Alarms = alarms.Where(a => !ebAlarms.Contains(a.Name) && HealthRules.AlarmMatchesEc2(a, ec2.Snapshot)).ToList();
+            matched.UnionWith(ec2.Alarms.Select(a => a.Name));
+        }
         health.OtherAlarms = alarms.Where(a => !matched.Contains(a.Name)).ToList();
     }
 
@@ -906,6 +1105,10 @@ public sealed class HealthService
         var now = DateTime.UtcNow;
         foreach (var eb in health.Eb)
             HealthRules.ApplyCauseSuppression(eb, target.Id, settings, now);
+        foreach (var lb in health.LoadBalancers)
+            HealthRules.ApplyCauseSuppression(lb, target.Id, settings);
+        foreach (var r in health.AllResources)
+            r.IsHidden = settings.HiddenResources.Contains(r.ResourceKey);
         foreach (var r in health.AllResources)
             HealthRules.Recompute(r, HealthRules.ResolveThresholds(settings, target, r), settings.SustainedMinutes, HealthRules.ResolveStorageThresholds(settings, r.ResourceKey));
     }
@@ -937,6 +1140,9 @@ public sealed class HealthService
             var had = _notified.TryGetValue(r.ResourceKey, out var prev);
             _notified[r.ResourceKey] = new NotifiedState(r.Level, active);
 
+            // Hidden resources are tracked (so unhiding does not replay old news) but never notify.
+            if (r.IsHidden)
+                continue;
             var prevLevel = had ? prev!.Level : HealthLevel.Ok;
             var wasProblem = prevLevel >= HealthLevel.Warn;
             var isProblem = r.Level >= HealthLevel.Warn;

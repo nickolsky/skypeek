@@ -1,0 +1,79 @@
+<Window x:Class="Skypeek.App.Views.RuleEditorDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+        Title="Security group rule" Width="520" SizeToContent="Height" ResizeMode="NoResize" FontSize="12"
+        WindowStyle="None" WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="#FF2B2B2B" BorderBrush="#FF3D3D3D" BorderThickness="1">
+    <WindowChrome.WindowChrome>
+        <WindowChrome CaptionHeight="34" ResizeBorderThickness="0" GlassFrameThickness="0" CornerRadius="0" UseAeroCaptionButtons="False" />
+    </WindowChrome.WindowChrome>
+    <DockPanel>
+        <Grid DockPanel.Dock="Top" Height="34">
+            <TextBlock x:Name="CaptionText" Text="Security group rule" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="16,0,0,0" />
+            <ui:Button HorizontalAlignment="Right" VerticalAlignment="Top" Width="44" Height="32" Padding="0" Appearance="Transparent" BorderThickness="0"
+                       Icon="{ui:SymbolIcon Dismiss16}" WindowChrome.IsHitTestVisibleInChrome="True" Click="OnCancel" ToolTip="Close" />
+        </Grid>
+
+        <Border DockPanel.Dock="Bottom" Background="#FF202020" BorderBrush="#FF3D3D3D" BorderThickness="0,1,0,0" Padding="20,14">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Left" Style="{StaticResource Caption}" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="250"
+                           Text="Next: the permission dialog shows the exact change before anything is sent." />
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <ui:Button Content="Cancel" Margin="0,0,8,0" MinWidth="80" IsCancel="True" Click="OnCancel" />
+                    <ui:Button x:Name="OkButton" Content="Continue…" Appearance="Primary" MinWidth="90" IsDefault="True" Click="OnOk" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <StackPanel Margin="20,4,20,18">
+            <TextBlock x:Name="GroupText" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource TextStrong}" TextWrapping="Wrap" />
+            <TextBlock x:Name="DirectionText" Style="{StaticResource Caption}" Margin="0,2,0,12" TextWrapping="Wrap" />
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="110" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                </Grid.RowDefinitions>
+                <TextBlock Text="Type" Style="{StaticResource Body}" VerticalAlignment="Center" />
+                <ComboBox x:Name="Preset" Grid.Column="1" Margin="0,4" DisplayMemberPath="Label" SelectionChanged="OnPresetChanged" />
+
+                <TextBlock Grid.Row="1" Text="Protocol" Style="{StaticResource Body}" VerticalAlignment="Center" />
+                <ui:TextBox x:Name="Protocol" Grid.Row="1" Grid.Column="1" Margin="0,4" PlaceholderText="tcp, udp, icmp, icmpv6, -1 (all) or a number" TextChanged="OnChanged" />
+
+                <TextBlock x:Name="PortLabel" Grid.Row="2" Text="Port range" Style="{StaticResource Body}" VerticalAlignment="Center" />
+                <ui:TextBox x:Name="Ports" Grid.Row="2" Grid.Column="1" Margin="0,4" PlaceholderText="443, or 8000-8100" TextChanged="OnChanged" />
+
+                <TextBlock Grid.Row="3" Text="Source" x:Name="SourceLabel" Style="{StaticResource Body}" VerticalAlignment="Center" />
+                <ComboBox x:Name="SourceKind" Grid.Row="3" Grid.Column="1" Margin="0,4" SelectionChanged="OnSourceKindChanged">
+                    <ComboBoxItem Content="IPv4 CIDR" />
+                    <ComboBoxItem Content="IPv6 CIDR" />
+                    <ComboBoxItem Content="Security group" />
+                    <ComboBoxItem Content="Prefix list" />
+                </ComboBox>
+
+                <DockPanel Grid.Row="4" Grid.Column="1" Margin="0,4">
+                    <ui:Button x:Name="MyIpButton" DockPanel.Dock="Right" Content="My IP" Margin="6,0,0,0" Click="OnMyIp"
+                               ToolTip="Asks checkip.amazonaws.com for this computer's public IPv4 address and fills it in as /32" />
+                    <ComboBox x:Name="Source" IsEditable="True" IsTextSearchEnabled="False" DisplayMemberPath="Label" TextBoxBase.TextChanged="OnChanged" />
+                </DockPanel>
+
+                <TextBlock Grid.Row="5" Text="Description" Style="{StaticResource Body}" VerticalAlignment="Center" />
+                <ui:TextBox x:Name="Description" Grid.Row="5" Grid.Column="1" Margin="0,4" PlaceholderText="optional, e.g. office VPN" MaxLength="255" />
+            </Grid>
+            <TextBlock x:Name="SummaryText" Style="{StaticResource Body}" TextWrapping="Wrap" Margin="0,10,0,0" />
+            <Border x:Name="WorldWarning" Background="#44E8464A" CornerRadius="4" Padding="10,6" Margin="0,8,0,0" Visibility="Collapsed">
+                <TextBlock Foreground="{StaticResource TextStrong}" TextWrapping="Wrap"
+                           Text="⚠ This allows the whole internet. Anyone can connect to these ports on every resource using this group. Prefer a specific address range; you will be asked to type the group ID to confirm." />
+            </Border>
+            <TextBlock x:Name="Error" Foreground="#FFFF7B7F" Visibility="Collapsed" Margin="0,8,0,0" TextWrapping="Wrap" />
+        </StackPanel>
+    </DockPanel>
+</Window>

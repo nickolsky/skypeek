@@ -189,7 +189,9 @@ public static partial class HealthRules
         EbEnvironmentStatus => ResolveThresholds(settings, target, resource.ResourceKey, isEcs: false),
         _ when settings.ResourceThresholds.TryGetValue(resource.ResourceKey, out var perResource) => perResource,
         RdsInstanceStatus or RdsClusterStatus => settings.RdsThresholds,
-        _ => settings.CacheThresholds,
+        Ec2InstanceStatus => settings.Ec2Thresholds,
+        CacheStatus => settings.CacheThresholds,
+        _ => ThresholdSettings.Default,
     };
 
     /// <summary>RDS used-storage thresholds: the resource's override when it sets them, else the global ones.</summary>
@@ -202,9 +204,23 @@ public static partial class HealthRules
         metricName is not null &&
         (metricName.Contains("cpu", StringComparison.OrdinalIgnoreCase) || metricName.Contains("mem", StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>Alarms worth showing: CPU/memory anywhere, and every alarm on an RDS or ElastiCache metric (storage, connections, lag, …).</summary>
+    /// <summary>
+    /// Alarms worth showing: CPU/memory anywhere, every alarm on an RDS, ElastiCache or load balancer metric (storage,
+    /// connections, lag, 5xx, unhealthy hosts, …) and EC2 status-check alarms.
+    /// </summary>
     public static bool IsRelevantAlarm(AlarmInfo alarm) =>
-        IsCpuOrMemoryMetric(alarm.MetricName) || alarm.Namespace is "AWS/RDS" or "AWS/ElastiCache";
+        IsCpuOrMemoryMetric(alarm.MetricName)
+        || alarm.Namespace is "AWS/RDS" or "AWS/ElastiCache" or "AWS/ApplicationELB" or "AWS/NetworkELB" or "AWS/GatewayELB"
+        || (alarm.Namespace == "AWS/EC2" && alarm.MetricName?.StartsWith("StatusCheckFailed", StringComparison.Ordinal) == true);
+
+    public static bool AlarmMatchesEc2(AlarmInfo alarm, Ec2InstanceSnapshot instance) =>
+        alarm.Dimensions.TryGetValue("InstanceId", out var id) && id == instance.InstanceId;
+
+    /// <summary>Load balancer alarms use the ARN suffixes: LoadBalancer=app/name/id, TargetGroup=targetgroup/name/id.</summary>
+    public static bool AlarmMatchesLoadBalancer(AlarmInfo alarm, LoadBalancerSnapshot lb) =>
+        alarm.Namespace == lb.Namespace &&
+        ((alarm.Dimensions.TryGetValue("LoadBalancer", out var name) && name == lb.ArnSuffix) ||
+         (alarm.Dimensions.TryGetValue("TargetGroup", out var group) && lb.TargetGroups.Any(t => t.ArnSuffix == group)));
 
     public static bool AlarmMatchesRds(AlarmInfo alarm, RdsInstanceSnapshot db) =>
         alarm.Namespace == "AWS/RDS" && alarm.Dimensions.TryGetValue("DBInstanceIdentifier", out var id) && id == db.Identifier;
@@ -297,6 +313,93 @@ public static partial class HealthRules
         }
         AddRecentFailures(events, nowUtc, ref level, reasons);
         return (level, reasons);
+    }
+
+    // ---------------- EC2 / load balancers ----------------
+
+    /// <summary>
+    /// A running instance with a failed status check is critical; scheduled maintenance is a warning. A stopped instance
+    /// was stopped on purpose (or by its owner) and is not a problem.
+    /// </summary>
+    public static (HealthLevel Level, List<string> Reasons) EvaluateEc2(Ec2InstanceSnapshot instance)
+    {
+        var level = HealthLevel.Ok;
+        var reasons = new List<string>();
+        if (!instance.IsRunning)
+            return (instance.State is "stopped" or "pending" or "stopping" or "shutting-down" ? HealthLevel.Ok : HealthLevel.Unknown, reasons);
+
+        if (instance.SystemStatus == "impaired")
+        {
+            level = HealthLevel.Critical;
+            reasons.Add("System status check failed (AWS hardware or network)");
+        }
+        if (instance.InstanceStatus == "impaired")
+        {
+            level = HealthLevel.Critical;
+            reasons.Add("Instance status check failed (OS not reachable)");
+        }
+        if (instance.ScheduledEvents.Count > 0)
+        {
+            level = Max(level, HealthLevel.Warn);
+            reasons.Add($"Scheduled: {instance.ScheduledEvents[0]}");
+        }
+        return (level, reasons);
+    }
+
+    /// <summary>
+    /// Target group problems of a load balancer as stable texts (so they can be suppressed like EB causes), with their
+    /// level: some targets unhealthy is a warning, none healthy is critical.
+    /// </summary>
+    public static IReadOnlyList<(string Cause, HealthLevel Level, string Detail)> LoadBalancerCauses(LoadBalancerSnapshot lb)
+    {
+        var causes = new List<(string, HealthLevel, string)>();
+        foreach (var group in lb.TargetGroups.OrderBy(g => g.Name))
+        {
+            if (group.Unhealthy == 0)
+                continue;
+            var detail = $"{group.HealthText}{(group.UnhealthyReasons is { Length: > 0 } why ? $" — {why}" : "")}";
+            causes.Add(group.Healthy == 0
+                ? ($"Target group {group.Name} has no healthy targets", HealthLevel.Critical, detail)
+                : ($"Target group {group.Name} has unhealthy targets", HealthLevel.Warn, detail));
+        }
+        return causes;
+    }
+
+    public static (HealthLevel Level, List<string> Reasons) EvaluateLoadBalancer(LoadBalancerSnapshot lb, Func<string, bool>? isCauseSuppressed = null)
+    {
+        var level = HealthLevel.Ok;
+        var reasons = new List<string>();
+        switch (lb.State)
+        {
+            case "failed":
+                level = HealthLevel.Critical;
+                reasons.Add($"Load balancer failed{Suffix(lb.StateReason)}");
+                break;
+            case "active_impaired":
+                level = HealthLevel.Warn;
+                reasons.Add($"Load balancer impaired{Suffix(lb.StateReason)}");
+                break;
+        }
+        foreach (var (cause, causeLevel, detail) in LoadBalancerCauses(lb))
+        {
+            if (isCauseSuppressed?.Invoke(cause) == true)
+                continue;
+            level = Max(level, causeLevel);
+            reasons.Add($"{cause} ({detail})");
+        }
+        return (level, reasons);
+    }
+
+    /// <summary>Re-evaluates a load balancer's own health with the current cause suppressions.</summary>
+    public static void ApplyCauseSuppression(LoadBalancerStatus lb, long targetId, AppSettings settings)
+    {
+        lb.CauseItems = LoadBalancerCauses(lb.Snapshot)
+            .Select(c => MatchCause(c.Cause, targetId, lb.Snapshot.Name, settings) is { } rule
+                ? new CauseItem(c.Cause, true, rule.Pattern)
+                : new CauseItem(c.Cause, false, null))
+            .ToList();
+        var suppressed = lb.CauseItems.Where(i => i.Suppressed).Select(i => i.Text).ToHashSet();
+        (lb.BaseLevel, lb.BaseReasons) = EvaluateLoadBalancer(lb.Snapshot, suppressed.Contains);
     }
 
     private static void AddRecentFailures(IReadOnlyList<ServiceEvent> events, DateTime nowUtc, ref HealthLevel level, List<string> reasons)

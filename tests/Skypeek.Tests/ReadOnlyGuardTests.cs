@@ -101,7 +101,12 @@ public class ReadOnlyGuardTests
     public void Confirmed_only_actions_are_exactly_the_approved_set()
     {
         var names = ReadOnlyGuard.ConfirmedOnlyRequestTypes.Select(t => t.Name).OrderBy(n => n).ToList();
-        Assert.Equal(["RebootInstancesRequest", "RequestEnvironmentInfoRequest", "RestartAppServerRequest", "TerminateInstancesRequest", "UpdateEnvironmentRequest", "UpdateServiceRequest"], names);
+        Assert.Equal([
+            "AuthorizeSecurityGroupEgressRequest", "AuthorizeSecurityGroupIngressRequest", "ModifySecurityGroupRulesRequest",
+            "RebootInstancesRequest", "RequestEnvironmentInfoRequest", "RestartAppServerRequest",
+            "RevokeSecurityGroupEgressRequest", "RevokeSecurityGroupIngressRequest",
+            "StartInstancesRequest", "StopInstancesRequest", "TerminateInstancesRequest", "UpdateEnvironmentRequest", "UpdateServiceRequest",
+        ], names);
     }
 
     [Fact]
@@ -127,6 +132,72 @@ public class ReadOnlyGuardTests
         {
             Cluster = "c", Service = "s", ForceNewDeployment = true,
             NetworkConfiguration = new Amazon.ECS.Model.NetworkConfiguration(),
+        }));
+
+        // EC2 power: one instance; stop without force or hibernation.
+        Assert.Null(ReadOnlyGuard.ConfirmedRequestProblem(new Amazon.EC2.Model.StartInstancesRequest { InstanceIds = ["i-1"] }));
+        Assert.NotNull(ReadOnlyGuard.ConfirmedRequestProblem(new Amazon.EC2.Model.StartInstancesRequest { InstanceIds = ["i-1", "i-2"] }));
+        Assert.NotNull(ReadOnlyGuard.ConfirmedRequestProblem(new Amazon.EC2.Model.StartInstancesRequest { InstanceIds = ["i-1"], AdditionalInfo = "x" }));
+        Assert.Null(ReadOnlyGuard.ConfirmedRequestProblem(new Amazon.EC2.Model.StopInstancesRequest { InstanceIds = ["i-1"] }));
+        Assert.NotNull(ReadOnlyGuard.ConfirmedRequestProblem(new Amazon.EC2.Model.StopInstancesRequest { InstanceIds = ["i-1"], Force = true }));
+        Assert.NotNull(ReadOnlyGuard.ConfirmedRequestProblem(new Amazon.EC2.Model.StopInstancesRequest { InstanceIds = ["i-1"], Hibernate = true }));
+        Assert.NotNull(ReadOnlyGuard.ConfirmedRequestProblem(new Amazon.EC2.Model.StopInstancesRequest { InstanceIds = [] }));
+
+        // Security group rules: one rule, one source, by group id.
+        Amazon.EC2.Model.IpPermission Rule(Action<Amazon.EC2.Model.IpPermission>? change = null)
+        {
+            var p = new Amazon.EC2.Model.IpPermission { IpProtocol = "tcp", FromPort = 443, ToPort = 443, Ipv4Ranges = [new Amazon.EC2.Model.IpRange { CidrIp = "10.0.0.0/16" }] };
+            change?.Invoke(p);
+            return p;
+        }
+        Assert.Null(ReadOnlyGuard.ConfirmedRequestProblem(new Amazon.EC2.Model.AuthorizeSecurityGroupIngressRequest { GroupId = "sg-1", IpPermissions = [Rule()] }));
+        Assert.Null(ReadOnlyGuard.ConfirmedRequestProblem(new Amazon.EC2.Model.AuthorizeSecurityGroupEgressRequest { GroupId = "sg-1", IpPermissions = [Rule()] }));
+        Assert.Null(ReadOnlyGuard.ConfirmedRequestProblem(new Amazon.EC2.Model.AuthorizeSecurityGroupIngressRequest
+        {
+            GroupId = "sg-1",
+            IpPermissions = [Rule(p => { p.Ipv4Ranges = null; p.UserIdGroupPairs = [new Amazon.EC2.Model.UserIdGroupPair { GroupId = "sg-2" }]; })],
+        }));
+        Assert.NotNull(ReadOnlyGuard.ConfirmedRequestProblem(new Amazon.EC2.Model.AuthorizeSecurityGroupIngressRequest { GroupId = "sg-1", IpPermissions = [Rule(), Rule()] }));
+        Assert.NotNull(ReadOnlyGuard.ConfirmedRequestProblem(new Amazon.EC2.Model.AuthorizeSecurityGroupIngressRequest
+        {
+            GroupId = "sg-1",
+            IpPermissions = [Rule(p => p.Ipv4Ranges = [new Amazon.EC2.Model.IpRange { CidrIp = "10.0.0.0/16" }, new Amazon.EC2.Model.IpRange { CidrIp = "0.0.0.0/0" }])],
+        }));
+        Assert.NotNull(ReadOnlyGuard.ConfirmedRequestProblem(new Amazon.EC2.Model.AuthorizeSecurityGroupIngressRequest
+        {
+            GroupId = "sg-1",
+            IpPermissions = [Rule(p => p.Ipv6Ranges = [new Amazon.EC2.Model.Ipv6Range { CidrIpv6 = "::/0" }])],
+        }));
+        Assert.NotNull(ReadOnlyGuard.ConfirmedRequestProblem(new Amazon.EC2.Model.AuthorizeSecurityGroupIngressRequest { GroupName = "default", IpPermissions = [Rule()] }));
+        Assert.NotNull(ReadOnlyGuard.ConfirmedRequestProblem(new Amazon.EC2.Model.AuthorizeSecurityGroupIngressRequest
+        {
+            GroupId = "sg-1", IpPermissions = [Rule()], TagSpecifications = [new Amazon.EC2.Model.TagSpecification()],
+        }));
+        // A referenced group may not carry peering or VPC changes.
+        Assert.NotNull(ReadOnlyGuard.ConfirmedRequestProblem(new Amazon.EC2.Model.AuthorizeSecurityGroupIngressRequest
+        {
+            GroupId = "sg-1",
+            IpPermissions = [Rule(p => { p.Ipv4Ranges = null; p.UserIdGroupPairs = [new Amazon.EC2.Model.UserIdGroupPair { GroupId = "sg-2", VpcPeeringConnectionId = "pcx-1" }]; })],
+        }));
+        Assert.Null(ReadOnlyGuard.ConfirmedRequestProblem(new Amazon.EC2.Model.RevokeSecurityGroupIngressRequest { GroupId = "sg-1", SecurityGroupRuleIds = ["sgr-1"] }));
+        Assert.NotNull(ReadOnlyGuard.ConfirmedRequestProblem(new Amazon.EC2.Model.RevokeSecurityGroupIngressRequest { GroupId = "sg-1", SecurityGroupRuleIds = ["sgr-1", "sgr-2"] }));
+        Assert.NotNull(ReadOnlyGuard.ConfirmedRequestProblem(new Amazon.EC2.Model.RevokeSecurityGroupIngressRequest { GroupId = "sg-1", IpPermissions = [Rule()] }));
+        Assert.NotNull(ReadOnlyGuard.ConfirmedRequestProblem(new Amazon.EC2.Model.RevokeSecurityGroupEgressRequest { GroupId = "sg-1", SecurityGroupRuleIds = ["sgr-1"], IpPermissions = [Rule()] }));
+        var update = new Amazon.EC2.Model.SecurityGroupRuleUpdate
+        {
+            SecurityGroupRuleId = "sgr-1",
+            SecurityGroupRule = new Amazon.EC2.Model.SecurityGroupRuleRequest { IpProtocol = "tcp", FromPort = 22, ToPort = 22, CidrIpv4 = "10.1.0.0/16", Description = "vpn" },
+        };
+        Assert.Null(ReadOnlyGuard.ConfirmedRequestProblem(new Amazon.EC2.Model.ModifySecurityGroupRulesRequest { GroupId = "sg-1", SecurityGroupRules = [update] }));
+        Assert.NotNull(ReadOnlyGuard.ConfirmedRequestProblem(new Amazon.EC2.Model.ModifySecurityGroupRulesRequest { GroupId = "sg-1", SecurityGroupRules = [update, update] }));
+        Assert.NotNull(ReadOnlyGuard.ConfirmedRequestProblem(new Amazon.EC2.Model.ModifySecurityGroupRulesRequest
+        {
+            GroupId = "sg-1",
+            SecurityGroupRules = [new Amazon.EC2.Model.SecurityGroupRuleUpdate
+            {
+                SecurityGroupRuleId = "sgr-1",
+                SecurityGroupRule = new Amazon.EC2.Model.SecurityGroupRuleRequest { IpProtocol = "tcp", FromPort = 22, ToPort = 22, CidrIpv4 = "10.1.0.0/16", ReferencedGroupId = "sg-2" },
+            }],
         }));
 
         // Approval without the elevated key is not enough.
@@ -179,6 +250,52 @@ public class ReadOnlyGuardTests
             Assert.IsNotType<WriteOperationBlockedException>(ex);
         }
         Assert.Equal(1, endpoint.Requests);
+    }
+
+    [Fact]
+    public async Task Stop_instance_and_rule_changes_need_an_approved_elevated_scope_and_the_narrow_shape()
+    {
+        SharedPipeline.EnsureInstalled();
+        using var endpoint = new FakeAwsEndpoint("{}");
+        using var ec2 = new Amazon.EC2.AmazonEC2Client(Creds, Config(new Amazon.EC2.AmazonEC2Config(), endpoint.Url));
+        var stop = new Amazon.EC2.Model.StopInstancesRequest { InstanceIds = ["i-1"] };
+        var forceStop = new Amazon.EC2.Model.StopInstancesRequest { InstanceIds = ["i-1"], Force = true };
+        var revoke = new Amazon.EC2.Model.RevokeSecurityGroupIngressRequest { GroupId = "sg-1", SecurityGroupRuleIds = ["sgr-1"] };
+
+        await Assert.ThrowsAsync<WriteOperationBlockedException>(() => ec2.StopInstancesAsync(stop));
+        using (RequestScope.Begin(new RequestScopeInfo("p", null, "us-east-1", Elevated: false, Approved: true)))
+        {
+            await Assert.ThrowsAsync<WriteOperationBlockedException>(() => ec2.StopInstancesAsync(stop));
+            await Assert.ThrowsAsync<WriteOperationBlockedException>(() => ec2.RevokeSecurityGroupIngressAsync(revoke));
+        }
+        using (RequestScope.Begin(new RequestScopeInfo("p", null, "us-east-1", Elevated: true, Approved: true)))
+            await Assert.ThrowsAsync<WriteOperationBlockedException>(() => ec2.StopInstancesAsync(forceStop));
+        Assert.Equal(0, endpoint.Requests);
+
+        using (RequestScope.Begin(new RequestScopeInfo("p", null, "us-east-1", Elevated: true, Approved: true)))
+        {
+            Assert.IsNotType<WriteOperationBlockedException>(await Record.ExceptionAsync(() => ec2.StopInstancesAsync(stop)));
+            Assert.IsNotType<WriteOperationBlockedException>(await Record.ExceptionAsync(() => ec2.RevokeSecurityGroupIngressAsync(revoke)));
+        }
+        Assert.Equal(2, endpoint.Requests);
+    }
+
+    [Fact]
+    public void Rule_changes_are_logged_without_descriptions()
+    {
+        var logged = RequestParameterRedactor.Describe(new Amazon.EC2.Model.AuthorizeSecurityGroupIngressRequest
+        {
+            GroupId = "sg-1",
+            IpPermissions = [new Amazon.EC2.Model.IpPermission
+            {
+                IpProtocol = "tcp", FromPort = 22, ToPort = 22,
+                Ipv4Ranges = [new Amazon.EC2.Model.IpRange { CidrIp = "203.0.113.5/32", Description = "home of someone" }],
+            }],
+        });
+        Assert.Contains("GroupId=sg-1", logged);
+        Assert.Contains("203.0.113.5/32", logged);
+        Assert.DoesNotContain("home of someone", logged);
+        Assert.Contains("Force=True", RequestParameterRedactor.Describe(new Amazon.EC2.Model.StopInstancesRequest { InstanceIds = ["i-1"], Force = true }));
     }
 
     [Fact]
@@ -268,6 +385,7 @@ public class ReadOnlyGuardTests
             typeof(Amazon.RDS.AmazonRDSClient).Assembly,
             typeof(Amazon.ElastiCache.AmazonElastiCacheClient).Assembly,
             typeof(Amazon.SSO.AmazonSSOClient).Assembly,
+            typeof(Amazon.ElasticLoadBalancingV2.AmazonElasticLoadBalancingV2Client).Assembly,
         };
 
         var forbidden = sdkAssemblies
@@ -279,7 +397,17 @@ public class ReadOnlyGuardTests
         Assert.Contains("Amazon.ECS.Model.DeleteServiceRequest", forbidden);
         Assert.Contains("Amazon.ECS.Model.StopTaskRequest", forbidden);
         Assert.Contains("Amazon.ElasticBeanstalk.Model.RebuildEnvironmentRequest", forbidden);
-        Assert.Contains("Amazon.EC2.Model.StopInstancesRequest", forbidden);
+        // EC2: power and single rule changes only; nothing that creates, deletes or reconfigures resources.
+        Assert.Contains("Amazon.EC2.Model.ModifyInstanceAttributeRequest", forbidden);
+        Assert.Contains("Amazon.EC2.Model.CreateSecurityGroupRequest", forbidden);
+        Assert.Contains("Amazon.EC2.Model.DeleteSecurityGroupRequest", forbidden);
+        Assert.Contains("Amazon.EC2.Model.ModifyNetworkInterfaceAttributeRequest", forbidden);
+        Assert.Contains("Amazon.EC2.Model.RunInstancesRequest", forbidden);
+        // Load balancers are read-only (managed in the console).
+        Assert.Contains("Amazon.ElasticLoadBalancingV2.Model.ModifyRuleRequest", forbidden);
+        Assert.Contains("Amazon.ElasticLoadBalancingV2.Model.DeleteLoadBalancerRequest", forbidden);
+        Assert.Contains("Amazon.ElasticLoadBalancingV2.Model.RegisterTargetsRequest", forbidden);
+        Assert.Contains("Amazon.ElasticLoadBalancingV2.Model.DeregisterTargetsRequest", forbidden);
         // Databases and caches are strictly read-only: no reboot, failover, modify or delete.
         Assert.Contains("Amazon.RDS.Model.RebootDBInstanceRequest", forbidden);
         Assert.Contains("Amazon.RDS.Model.FailoverDBClusterRequest", forbidden);

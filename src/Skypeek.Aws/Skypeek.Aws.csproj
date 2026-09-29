@@ -11,6 +11,7 @@
     <PackageReference Include="AWSSDK.ECS" Version="4.0.105.1" />
     <PackageReference Include="AWSSDK.ElastiCache" Version="4.0.101" />
     <PackageReference Include="AWSSDK.ElasticBeanstalk" Version="4.0.101" />
+    <PackageReference Include="AWSSDK.ElasticLoadBalancingV2" Version="4.0.101.11" />
     <PackageReference Include="AWSSDK.RDS" Version="4.0.105.3" />
     <PackageReference Include="AWSSDK.SecretsManager" Version="4.0.100.14" />
     <PackageReference Include="AWSSDK.SecurityToken" Version="4.0.101" />

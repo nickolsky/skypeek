@@ -28,6 +28,8 @@ public partial class SettingsView
         [new("Off", 0), new("1 minute", 1), new("2 minutes", 2), new("5 minutes", 5), new("15 minutes", 15), new("30 minutes", 30)];
     private static readonly IntervalOption[] MetricsOptions =
         [new("Off", 0), new("1 minute", 1), new("5 minutes", 5), new("15 minutes", 15), new("30 minutes", 30)];
+    private static readonly IntervalOption[] NetworkOptions =
+        [new("Only on demand", 0), new("Every 15 minutes", 15), new("Every hour", 60), new("Every 6 hours", 360), new("Daily", 1440)];
 
     private readonly AppSession _session;
     private readonly List<Target> _targets;
@@ -55,6 +57,7 @@ public partial class SettingsView
         CatalogInterval.ItemsSource = CatalogOptions;
         HealthInterval.ItemsSource = HealthOptions;
         MetricsInterval.ItemsSource = MetricsOptions;
+        NetworkInterval.ItemsSource = NetworkOptions;
         Region.ItemsSource = AwsRegions.All;
 
         LoadGeneral(settings);
@@ -105,6 +108,7 @@ public partial class SettingsView
         SetThresholdBoxes(s.EbThresholds, GEbCpuWarn, GEbCpuCrit, GEbMemWarn, GEbMemCrit);
         SetThresholdBoxes(s.RdsThresholds, GRdsCpuWarn, GRdsCpuCrit, GRdsConnWarn, GRdsConnCrit);
         SetThresholdBoxes(s.CacheThresholds, GCacheCpuWarn, GCacheCpuCrit, GCacheMemWarn, GCacheMemCrit);
+        SetThresholdBoxes(s.Ec2Thresholds, GEc2CpuWarn, GEc2CpuCrit, GEc2MemWarn, GEc2MemCrit);
         GRdsStorageWarn.Text = s.RdsStorageWarn.ToString(CultureInfo.InvariantCulture);
         GRdsStorageCrit.Text = s.RdsStorageCritical.ToString(CultureInfo.InvariantCulture);
         SustainedMinutes.Text = s.SustainedMinutes.ToString(CultureInfo.InvariantCulture);
@@ -295,6 +299,10 @@ public partial class SettingsView
         FeatEcs.IsChecked = t.EcsEnabled;
         FeatRds.IsChecked = t.RdsEnabled;
         FeatCache.IsChecked = t.CacheEnabled;
+        FeatEc2.IsChecked = t.Ec2Enabled;
+        FeatElb.IsChecked = t.ElbEnabled;
+        FeatNetwork.IsChecked = t.NetworkEnabled;
+        NetworkInterval.SelectedItem = NetworkOptions.FirstOrDefault(o => o.Minutes == t.NetworkIntervalMinutes) ?? NetworkOptions[2];
 
         var preset = CatalogOptions.FirstOrDefault(o => o.Minutes == t.CatalogIntervalMinutes);
         CatalogInterval.SelectedItem = preset;
@@ -343,7 +351,7 @@ public partial class SettingsView
     private bool ConfirmSameKey(string profile) => ConfirmDialog.Ask(Window.GetWindow(this),
         "Use the same key for read-only and elevated access?",
         $"{profile} will sign every call: background refresh, and also the elevated actions (reveal with the elevated key, EB log requests, " +
-        "deploy, restart, reboot and terminate). You lose the separation between a key that can only read and one that can change things: " +
+        "deploy, restart, reboot, terminate, EC2 start/stop and security group rule changes). You lose the separation between a key that can only read and one that can change things: " +
         "if this key has write permissions, a bug or a mistaken approval uses them directly.\n\n" +
         "Skypeek still blocks every call that is not on its allowlist and still asks before each elevated action. " +
         "Use this only when the account has no separate read-only role.",
@@ -388,6 +396,11 @@ public partial class SettingsView
         t.EcsEnabled = FeatEcs.IsChecked == true;
         t.RdsEnabled = FeatRds.IsChecked == true;
         t.CacheEnabled = FeatCache.IsChecked == true;
+        t.Ec2Enabled = FeatEc2.IsChecked == true;
+        t.ElbEnabled = FeatElb.IsChecked == true;
+        t.NetworkEnabled = FeatNetwork.IsChecked == true;
+        if (NetworkInterval.SelectedItem is IntervalOption n) t.NetworkIntervalMinutes = n.Minutes;
+        NetworkInterval.IsEnabled = t.NetworkEnabled;
 
         if (!string.IsNullOrWhiteSpace(CatalogCustom.Text))
         {
@@ -539,8 +552,10 @@ public partial class SettingsView
             ResourceThresholds = MergedOverrides(),
             SuppressedAlarms = MergedSuppressions(),
             SuppressedCauses = MergedCauses(),
-            // Set from the dashboard toolbar, not here.
+            // Set from the dashboard, not here.
             EbGroupByApplication = _session.Settings.Settings.EbGroupByApplication,
+            Ec2IncludeEbInstances = _session.Settings.Settings.Ec2IncludeEbInstances,
+            HiddenResources = _session.Settings.Settings.HiddenResources,
         };
         if (ThresholdDialog.TryParseThresholds(GEcsCpuWarn.Text, GEcsCpuCrit.Text, GEcsMemWarn.Text, GEcsMemCrit.Text, out var ecs, out var ecsError))
             settings.EcsThresholds = ecs;
@@ -558,6 +573,10 @@ public partial class SettingsView
             settings.CacheThresholds = cache;
         else
             errors.Add($"ElastiCache thresholds: {cacheError}");
+        if (ThresholdDialog.TryParseThresholds(GEc2CpuWarn.Text, GEc2CpuCrit.Text, GEc2MemWarn.Text, GEc2MemCrit.Text, out var ec2, out var ec2Error))
+            settings.Ec2Thresholds = ec2;
+        else
+            errors.Add($"EC2 thresholds: {ec2Error}");
         // Same rules as a CPU pair: 1–100, warning not above critical.
         if (ThresholdDialog.TryParseThresholds(GRdsStorageWarn.Text, GRdsStorageCrit.Text, GRdsStorageWarn.Text, GRdsStorageCrit.Text, out var storage, out var storageError))
             (settings.RdsStorageWarn, settings.RdsStorageCritical) = (storage.CpuWarn, storage.CpuCritical);

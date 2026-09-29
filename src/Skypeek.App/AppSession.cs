@@ -27,6 +27,7 @@ public sealed class AppSession : IDisposable
         Gateway = new AwsGateway(Monitor, Clients, log, approver);
         Catalog = new CatalogService(Gateway, Repository, Settings, Monitor);
         Health = new HealthService(Gateway, Repository, Settings, notifier);
+        Network = new NetworkService(Gateway, Repository, Settings);
         Scheduler = new TargetScheduler(Settings, Monitor, Repository, log, ExecuteJob);
 
         Monitor.ProfileHalted += p => notifier.Notify("AWS credentials rejected",
@@ -46,6 +47,7 @@ public sealed class AppSession : IDisposable
     public AwsGateway Gateway { get; }
     public CatalogService Catalog { get; }
     public HealthService Health { get; }
+    public NetworkService Network { get; }
     public TargetScheduler Scheduler { get; }
 
     public static async Task<AppSession> StartAsync(Vault vault, RequestLogService log, INotifier notifier, IElevationApprover approver)
@@ -72,6 +74,7 @@ public sealed class AppSession : IDisposable
     {
         Settings.DeleteTarget(id);
         Health.Forget(id);
+        Network.Forget(id);
         Catalog.ReloadIndex();
     }
 
@@ -80,6 +83,7 @@ public sealed class AppSession : IDisposable
         JobKind.Catalog => Catalog.SyncAsync(target, ct),
         JobKind.Health => Health.PollHealthAsync(target, ct),
         JobKind.Metrics => Health.PollMetricsAsync(target, ct),
+        JobKind.Network => Network.SyncAsync(target, ct),
         _ => Task.FromResult(0),
     };
 

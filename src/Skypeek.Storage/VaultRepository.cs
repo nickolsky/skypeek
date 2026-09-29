@@ -10,7 +10,7 @@ namespace Skypeek.Storage;
 
 /// <summary>All persistence on top of the encrypted vault.</summary>
 public sealed class VaultRepository(Vault vault) :
-    ISettingsStore, ICatalogStore, ISyncRunStore, IHealthStore, ICredentialHaltStore, IRequestLogStore
+    ISettingsStore, ICatalogStore, ISyncRunStore, IHealthStore, INetworkStore, ICredentialHaltStore, IRequestLogStore
 {
     private static readonly JsonSerializerOptions Json = new();
 
@@ -65,6 +65,7 @@ public sealed class VaultRepository(Vault vault) :
                      "DELETE FROM catalog_items WHERE target_id = $id",
                      "DELETE FROM sync_runs WHERE target_id = $id",
                      "DELETE FROM health_snapshots WHERE target_id = $id",
+                     "DELETE FROM network_snapshots WHERE target_id = $id",
                  })
         {
             using var cmd = Command(c, sql, ("$id", id));
@@ -232,6 +233,41 @@ public sealed class VaultRepository(Vault vault) :
             }
         }
         return (IReadOnlyList<TargetHealth>)list;
+    });
+
+    // ---------------- network ----------------
+
+    public void Save(long targetId, NetworkSnapshot snapshot)
+    {
+        var json = JsonSerializer.Serialize(snapshot, Json);
+        vault.Execute(c =>
+        {
+            using var cmd = Command(c, """
+                INSERT INTO network_snapshots (target_id, json, updated_at) VALUES ($t, $j, $u)
+                ON CONFLICT(target_id) DO UPDATE SET json = excluded.json, updated_at = excluded.updated_at
+                """, ("$t", targetId), ("$j", json), ("$u", Iso(DateTime.UtcNow)));
+            cmd.ExecuteNonQuery();
+        });
+    }
+
+    IReadOnlyList<NetworkSnapshot> INetworkStore.LoadAll() => vault.Execute(c =>
+    {
+        using var cmd = Command(c, "SELECT json FROM network_snapshots");
+        using var r = cmd.ExecuteReader();
+        var list = new List<NetworkSnapshot>();
+        while (r.Read())
+        {
+            try
+            {
+                if (JsonSerializer.Deserialize<NetworkSnapshot>(r.GetString(0), Json) is { } s)
+                    list.Add(s);
+            }
+            catch (JsonException)
+            {
+                // Older format; downloaded again on the next network sync.
+            }
+        }
+        return (IReadOnlyList<NetworkSnapshot>)list;
     });
 
     // ---------------- credential halts ----------------

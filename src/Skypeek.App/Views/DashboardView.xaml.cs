@@ -21,6 +21,8 @@ public partial class DashboardView
     private readonly Dictionary<string, (DateTime LoadedUtc, IReadOnlyList<EbApplicationVersion> Versions)> _versions = new();
     private static readonly TimeSpan VersionsMaxAge = TimeSpan.FromMinutes(10);
     private string? _selectedKey;
+    /// <summary>Select this node (and open its parents) on the next rebuild.</summary>
+    private string? _revealKey;
     private bool _rebuilding;
     private bool _searching;
 
@@ -92,13 +94,20 @@ public partial class DashboardView
         _rebuilding = true;
         try
         {
-            var roots = DashboardTreeBuilder.Build(_session, ProblemsOnly.IsChecked == true);
+            var roots = DashboardTreeBuilder.Build(_session, ProblemsOnly.IsChecked == true, ShowHidden.IsChecked == true);
             var query = SearchBox.Text?.Trim() ?? "";
             _searching = query.Length > 0;
             // While searching the tree shows only matches and the path to them, opened; normal expansion comes back after.
             if (_searching)
                 roots = DashboardTreeBuilder.Filter(roots, query);
             DashNode? selected = null;
+            if (_revealKey is { } reveal && FindPath(roots, reveal) is { } path)
+            {
+                foreach (var ancestor in path.SkipLast(1))
+                    _expanded[ancestor.Key] = true;
+                _selectedKey = reveal;
+                _revealKey = null;
+            }
             foreach (var node in Flatten(roots))
             {
                 if (!_searching)
@@ -114,6 +123,8 @@ public partial class DashboardView
             if (selected is not null)
                 ShowDetails(selected.Payload);
 
+            var hidden = _session.Health.Snapshot().Sum(h => h.AllResources.Count(r => r.IsHidden));
+            ShowHidden.Content = hidden == 0 ? "Show hidden" : $"Show hidden ({hidden})";
             var status = _session.ComputeTrayStatus();
             var suppressed = _session.Health.Snapshot().Sum(h => HealthRules.AllAlarms(h).Count(a => a.IsActive && a.Suppressed));
             Summary.Text = status.Count == 0 ? "All good" : $"{status.Count} problem(s)";
@@ -201,6 +212,28 @@ public partial class DashboardView
             _session.Settings.SaveSettings(settings);
         }
         Rebuild();
+    }
+
+    /// <summary>Selects a resource in the tree (e.g. the EC2 instance behind a load balancer target).</summary>
+    public void Reveal(string resourceKey)
+    {
+        _revealKey = resourceKey;
+        SearchBox.Text = "";
+        if (ProblemsOnly.IsChecked == true)
+            ProblemsOnly.IsChecked = false;
+        Rebuild();
+    }
+
+    private static List<DashNode>? FindPath(IEnumerable<DashNode> nodes, string key)
+    {
+        foreach (var node in nodes)
+        {
+            if (node.Key == key)
+                return [node];
+            if (FindPath(node.Children, key) is { } below)
+                return [node, .. below];
+        }
+        return null;
     }
 
     private static IEnumerable<DashNode> Flatten(IEnumerable<DashNode> nodes)
@@ -365,6 +398,7 @@ public partial class DashboardView
         {
             RdsInstanceStatus => ("CPU", "Connections % of max"),
             CacheStatus => ("Engine CPU", "Memory used"),
+            Ec2InstanceStatus => ("CPU", "Memory (CW agent)"),
             _ => ("CPU", "Memory"),
         };
         (double, double)? storage = r is RdsInstanceStatus { Snapshot.IsAurora: false } ? HealthRules.ResolveStorageThresholds(settings, r.ResourceKey) : null;
@@ -420,11 +454,22 @@ public partial class DashboardView
 
     // ---------------- EB health cause suppression ----------------
 
+    /// <summary>EB environments and load balancers have suppressible causes; the rule is scoped by the resource name.</summary>
+    private (Target Target, string Name)? OwningCauseResource(object sender) =>
+        sender is FrameworkElement element && FindOwningResource(element) is { } r && _session.Settings.FindTarget(r.TargetId) is { } target
+            ? r switch
+            {
+                EbEnvironmentStatus env => (target, env.Snapshot.EnvironmentName),
+                LoadBalancerStatus lb => (target, lb.Snapshot.Name),
+                _ => null,
+            }
+            : null;
+
     private void OnSuppressCause(object sender, RoutedEventArgs e)
     {
-        if (sender is not FrameworkElement { Tag: CauseItem cause } || OwningEnvironment(sender) is not var (target, env))
+        if (sender is not FrameworkElement { Tag: CauseItem cause } || OwningCauseResource(sender) is not var (target, name))
             return;
-        var dialog = new CauseSuppressDialog(target, env.Snapshot.EnvironmentName, cause.Text) { Owner = Window.GetWindow(this) };
+        var dialog = new CauseSuppressDialog(target, name, cause.Text) { Owner = Window.GetWindow(this) };
         if (dialog.ShowDialog() != true || dialog.Result is not { } rule)
             return;
         var settings = _session.Settings.Settings;
@@ -436,12 +481,12 @@ public partial class DashboardView
 
     private void OnUnsuppressCause(object sender, RoutedEventArgs e)
     {
-        if (sender is not FrameworkElement { Tag: CauseItem cause } || OwningEnvironment(sender) is not var (target, env))
+        if (sender is not FrameworkElement { Tag: CauseItem cause } || OwningCauseResource(sender) is not var (target, name))
             return;
         var settings = _session.Settings.Settings;
         var removed = settings.SuppressedCauses.RemoveAll(rule =>
             (rule.TargetId is null || rule.TargetId == target.Id) &&
-            (rule.EnvironmentName is null || rule.EnvironmentName == env.Snapshot.EnvironmentName) &&
+            (rule.EnvironmentName is null || rule.EnvironmentName == name) &&
             HealthRules.WildcardMatch(HealthRules.NormalizeCause(rule.Pattern), HealthRules.NormalizeCause(cause.Text)));
         if (removed == 0)
             return;
@@ -456,7 +501,7 @@ public partial class DashboardView
     private void ShowSuppressions()
     {
         _selectedKey = null;
-        Details.Content = SuppressionsDetail.From(_session.Settings.Settings, _session.Settings.Targets);
+        Details.Content = SuppressionsDetail.From(_session.Settings.Settings, _session.Settings.Targets, _session.Health.Snapshot());
     }
 
     private void OnRemoveSuppression(object sender, RoutedEventArgs e)
@@ -517,6 +562,7 @@ public partial class DashboardView
         {
             case EcsTaskDetail task: OpenUrl(task.ConsoleUrl); break;
             case EcsContainerDetail container: OpenUrl(container.ConsoleUrl); break;
+            case TargetGroupDetail group: OpenUrl(group.ConsoleUrl); break;
         }
     }
 
@@ -569,6 +615,113 @@ public partial class DashboardView
             ActionStatus.Foreground = LevelToBrushConverter.Critical;
             ActionStatus.Text = $"The AWS CLI (aws) was not found. Install it, or run: {detail.Command}";
         }
+    }
+
+    // ---------------- hide from dashboard ----------------
+
+    private void OnToggleHidden(object sender, RoutedEventArgs e)
+    {
+        if (ResourceFrom(sender) is { } r)
+            ToggleHidden(r);
+    }
+
+    private void OnHideNode(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is DashNode { Resource: { } r })
+            ToggleHidden(r);
+    }
+
+    private void OnCopyNodeTitle(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is DashNode node)
+            SecureClipboard.CopyPlain(node.Resource is EcsServiceStatus ecs ? ecs.Snapshot.ServiceName : node.Title);
+    }
+
+    private void ToggleHidden(ResourceStatus r)
+    {
+        var settings = _session.Settings.Settings;
+        var hide = !settings.HiddenResources.Contains(r.ResourceKey);
+        if (hide)
+            settings.HiddenResources.Add(r.ResourceKey);
+        else
+            settings.HiddenResources.Remove(r.ResourceKey);
+        _session.Settings.SaveSettings(settings);
+        _session.Health.Reevaluate();
+        ActionStatus.Foreground = (System.Windows.Media.Brush)FindResource("TextNormal");
+        ActionStatus.Text = hide
+            ? $"{r.DisplayName} is hidden: not shown, not counted, no toasts or metric queries. Show hidden or Suppressions brings it back."
+            : $"{r.DisplayName} is shown again.";
+    }
+
+    private void OnUnhideRow(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: HiddenRow row })
+            return;
+        var settings = _session.Settings.Settings;
+        if (!settings.HiddenResources.Remove(row.Key))
+            return;
+        _session.Settings.SaveSettings(settings);
+        _session.Health.Reevaluate();
+        ShowSuppressions();
+    }
+
+    // ---------------- EC2 ----------------
+
+    private void OnToggleEc2IncludeEb(object sender, RoutedEventArgs e)
+    {
+        if (sender is not CheckBox box)
+            return;
+        var settings = _session.Settings.Settings;
+        settings.Ec2IncludeEbInstances = box.IsChecked == true;
+        _session.Settings.SaveSettings(settings);
+        _session.Scheduler.RunNow(kind: JobKind.Health);
+        ActionStatus.Foreground = (System.Windows.Media.Brush)FindResource("TextNormal");
+        ActionStatus.Text = "EC2 list changes after the health poll that just started.";
+    }
+
+    private (Target Target, Ec2InstanceStatus Instance)? InstanceFrom(object sender) =>
+        ResourceFrom(sender) is Ec2InstanceStatus ec2 && _session.Settings.FindTarget(ec2.TargetId) is { } target ? (target, ec2) : null;
+
+    private void OnStartInstance(object sender, RoutedEventArgs e)
+    {
+        if (InstanceFrom(sender) is var (target, ec2))
+            _ = RunActionAsync(target, $"Starting {ec2.DisplayName}", () => _session.Gateway.StartEc2InstanceAsync(target, ec2.Snapshot, CancellationToken.None));
+    }
+
+    private void OnStopInstance(object sender, RoutedEventArgs e)
+    {
+        if (InstanceFrom(sender) is var (target, ec2))
+            _ = RunActionAsync(target, $"Stopping {ec2.DisplayName}", () => _session.Gateway.StopEc2InstanceAsync(target, ec2.Snapshot, CancellationToken.None));
+    }
+
+    private void OnRebootInstance(object sender, RoutedEventArgs e)
+    {
+        if (InstanceFrom(sender) is var (target, ec2))
+            _ = RunActionAsync(target, $"Rebooting {ec2.DisplayName}", () => _session.Gateway.RebootEc2InstanceAsync(target, ec2.Snapshot, CancellationToken.None));
+    }
+
+    /// <summary>Security group chip on an instance or load balancer: opens it on the Network tab.</summary>
+    private void OnOpenSecurityGroup(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string groupId } element || FindOwningTarget(element) is not { } target || Window.GetWindow(this) is not MainWindow main)
+            return;
+        main.OpenNetwork(target, groupId);
+    }
+
+    /// <summary>Load balancer target that is an EC2 instance: select it in the tree (or the EB environment it belongs to).</summary>
+    private void OnShowInstance(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string instanceId } element || FindDetail<TargetGroupDetail>(element) is not { } detail
+            || _session.Health.Get(detail.LoadBalancer.TargetId) is not { } health)
+            return;
+        var key = DashboardTreeBuilder.InstanceKey(health, instanceId);
+        if (key is null)
+        {
+            ActionStatus.Foreground = (System.Windows.Media.Brush)FindResource("TextNormal");
+            ActionStatus.Text = $"{instanceId} is not on the dashboard (EC2 monitoring off for this target, or hidden).";
+            return;
+        }
+        Reveal(key);
     }
 
     private void OnForceNewDeployment(object sender, RoutedEventArgs e)

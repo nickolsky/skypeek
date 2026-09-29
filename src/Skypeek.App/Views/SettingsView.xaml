@@ -115,7 +115,10 @@
                                 <CheckBox x:Name="FeatEb" Content="Elastic Beanstalk health" Margin="0,0,16,0" Checked="OnEditorChanged" Unchecked="OnEditorChanged" />
                                 <CheckBox x:Name="FeatEcs" Content="ECS health" Margin="0,0,16,0" Checked="OnEditorChanged" Unchecked="OnEditorChanged" />
                                 <CheckBox x:Name="FeatRds" Content="RDS databases" Margin="0,0,16,0" Checked="OnEditorChanged" Unchecked="OnEditorChanged" />
-                                <CheckBox x:Name="FeatCache" Content="ElastiCache (Redis/Valkey)" Checked="OnEditorChanged" Unchecked="OnEditorChanged" />
+                                <CheckBox x:Name="FeatCache" Content="ElastiCache (Redis/Valkey)" Margin="0,0,16,0" Checked="OnEditorChanged" Unchecked="OnEditorChanged" />
+                                <CheckBox x:Name="FeatEc2" Content="EC2 instances" Margin="0,0,16,0" Checked="OnEditorChanged" Unchecked="OnEditorChanged" />
+                                <CheckBox x:Name="FeatElb" Content="Load balancers" Margin="0,0,16,0" Checked="OnEditorChanged" Unchecked="OnEditorChanged" />
+                                <CheckBox x:Name="FeatNetwork" Content="Network tab (VPCs, IPs, security groups)" Checked="OnEditorChanged" Unchecked="OnEditorChanged" />
                             </WrapPanel>
 
                             <TextBlock Text="Schedules" Style="{StaticResource SectionHeader}" />
@@ -128,19 +131,22 @@
                                     <RowDefinition />
                                     <RowDefinition />
                                     <RowDefinition />
+                                    <RowDefinition />
                                 </Grid.RowDefinitions>
                                 <TextBlock Text="Secrets/parameters list refresh" VerticalAlignment="Center" />
                                 <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="0,3">
                                     <ComboBox x:Name="CatalogInterval" Width="150" DisplayMemberPath="Label" SelectionChanged="OnEditorChanged" />
                                     <ui:TextBox x:Name="CatalogCustom" Width="130" Margin="8,0,0,0" PlaceholderText="custom minutes" TextChanged="OnEditorChanged" />
                                 </StackPanel>
-                                <TextBlock Grid.Row="1" Text="Health poll (EB, ECS, RDS, cache)" VerticalAlignment="Center" />
+                                <TextBlock Grid.Row="1" Text="Health poll (EB, ECS, RDS, cache, EC2, ELB)" VerticalAlignment="Center" TextWrapping="Wrap" />
                                 <ComboBox Grid.Row="1" Grid.Column="1" x:Name="HealthInterval" Width="150" HorizontalAlignment="Left" Margin="0,3" DisplayMemberPath="Label" SelectionChanged="OnEditorChanged" />
                                 <TextBlock Grid.Row="2" Text="Metrics &amp; alarms" VerticalAlignment="Center" />
                                 <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Margin="0,3">
                                     <ComboBox x:Name="MetricsInterval" Width="150" DisplayMemberPath="Label" SelectionChanged="OnEditorChanged" />
                                     <TextBlock x:Name="CostEstimate" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap" MaxWidth="330" />
                                 </StackPanel>
+                                <TextBlock Grid.Row="3" Text="Network download" VerticalAlignment="Center" />
+                                <ComboBox Grid.Row="3" Grid.Column="1" x:Name="NetworkInterval" Width="150" HorizontalAlignment="Left" Margin="0,3" DisplayMemberPath="Label" SelectionChanged="OnEditorChanged" />
                             </Grid>
 
                             <TextBlock Text="Threshold overrides for this target" Style="{StaticResource SectionHeader}" />
@@ -227,6 +233,7 @@
                                 <RowDefinition />
                                 <RowDefinition />
                                 <RowDefinition />
+                                <RowDefinition />
                             </Grid.RowDefinitions>
                             <TextBlock Grid.Column="1" Text="CPU warn" Style="{StaticResource Caption}" />
                             <TextBlock Grid.Column="2" Text="CPU crit" Style="{StaticResource Caption}" />
@@ -255,6 +262,11 @@
                             <ui:TextBox Grid.Row="5" Grid.Column="2" x:Name="GCacheCpuCrit" Margin="0,3,6,3" />
                             <ui:TextBox Grid.Row="5" Grid.Column="4" x:Name="GCacheMemWarn" Margin="0,3,6,3" />
                             <ui:TextBox Grid.Row="5" Grid.Column="5" x:Name="GCacheMemCrit" Margin="0,3,6,3" />
+                            <TextBlock Grid.Row="6" Text="EC2 instances (standalone)" VerticalAlignment="Center" />
+                            <ui:TextBox Grid.Row="6" Grid.Column="1" x:Name="GEc2CpuWarn" Margin="0,3,6,3" />
+                            <ui:TextBox Grid.Row="6" Grid.Column="2" x:Name="GEc2CpuCrit" Margin="0,3,6,3" />
+                            <ui:TextBox Grid.Row="6" Grid.Column="4" x:Name="GEc2MemWarn" Margin="0,3,6,3" />
+                            <ui:TextBox Grid.Row="6" Grid.Column="5" x:Name="GEc2MemCrit" Margin="0,3,6,3" />
                         </Grid>
                         <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,4,0,0"
                                    Text="EC2 memory needs the CloudWatch agent (CWAgent mem_used_percent); otherwise it shows n/a. RDS max_connections comes from the parameter group, or is estimated from the engine default and instance size; when unknown, connections are shown but not evaluated." />

@@ -16,7 +16,7 @@ public partial class CauseSuppressDialog
         _environment = environmentName;
         Pattern.Text = HealthRules.NormalizeCause(cause);
         ThisEnv.Content = $"Only {environmentName}";
-        ThisTarget.Content = $"All environments in {target.DisplayName} ({target.Region})";
+        ThisTarget.Content = $"Everything in {target.DisplayName} ({target.Region})";
         Loaded += (_, _) =>
         {
             Pattern.Focus();

@@ -27,7 +27,7 @@ public static class TrayStatusCalculator
         {
             if (!byId.TryGetValue(h.TargetId, out var target))
                 continue;
-            foreach (var r in h.AllResources.Where(r => r.Level >= HealthLevel.Warn))
+            foreach (var r in h.AllResources.Where(r => r.IsProblem))
                 problems.Add(new Problem(target.Id, target.DisplayName, r.DisplayName, r.ReasonText, r.Level, r.ConsoleUrl));
             foreach (var alarm in h.OtherAlarms.Where(a => a.CountsAsProblem))
                 problems.Add(new Problem(target.Id, target.DisplayName, $"alarm {alarm.Name}", alarm.StateReason ?? "in ALARM", HealthLevel.Critical,

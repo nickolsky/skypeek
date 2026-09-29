@@ -25,9 +25,19 @@ public sealed class AppSettings
     public double RdsStorageCritical { get; set; } = 90;
     /// <summary>ElastiCache: engine CPU and memory usage (DatabaseMemoryUsagePercentage).</summary>
     public ThresholdSettings CacheThresholds { get; set; } = ThresholdSettings.Default;
+    /// <summary>Standalone EC2 instances: CPU and memory (CloudWatch agent).</summary>
+    public ThresholdSettings Ec2Thresholds { get; set; } = ThresholdSettings.Default;
 
     /// <summary>Dashboard: show Elastic Beanstalk environments under their application.</summary>
     public bool EbGroupByApplication { get; set; }
+    /// <summary>EC2 group also lists instances Elastic Beanstalk manages (they are shown under their environment anyway).</summary>
+    public bool Ec2IncludeEbInstances { get; set; }
+
+    /// <summary>
+    /// Resources (by <see cref="ResourceKeys"/> value) the user hid from the dashboard: not shown, not counted as
+    /// problems, no toasts and no metric queries. They stay in the inventory so unhiding is instant.
+    /// </summary>
+    public HashSet<string> HiddenResources { get; set; } = new();
     public int SustainedMinutes { get; set; } = 10;
     public int AlarmHistoryHours { get; set; } = 24;
     public bool WarningsTurnIconRed { get; set; } = true;
@@ -60,7 +70,7 @@ public sealed record CauseSuppression(string Pattern, long? TargetId, string? En
         return (target, EnvironmentName) switch
         {
             (null, _) => "all targets",
-            (_, null) => $"all environments in {target}",
+            (_, null) => $"everything in {target}",
             _ => $"{EnvironmentName} ({target})",
         };
     }
@@ -98,12 +108,18 @@ public sealed class Target
     public bool EcsEnabled { get; set; } = true;
     public bool RdsEnabled { get; set; } = true;
     public bool CacheEnabled { get; set; } = true;
+    public bool Ec2Enabled { get; set; } = true;
+    public bool ElbEnabled { get; set; } = true;
+    /// <summary>Network tab: VPCs, subnets, interfaces and security groups (downloaded and cached).</summary>
+    public bool NetworkEnabled { get; set; } = true;
 
     /// <summary>Any health/metrics feature on.</summary>
-    [JsonIgnore] public bool HealthEnabled => EbEnabled || EcsEnabled || RdsEnabled || CacheEnabled;
+    [JsonIgnore] public bool HealthEnabled => EbEnabled || EcsEnabled || RdsEnabled || CacheEnabled || Ec2Enabled || ElbEnabled;
 
     /// <summary>0 = off.</summary>
     public int CatalogIntervalMinutes { get; set; } = 360;
+    /// <summary>Network inventory download; 0 = only on demand.</summary>
+    public int NetworkIntervalMinutes { get; set; } = 60;
     public int HealthIntervalMinutes { get; set; } = 5;
     public int MetricsIntervalMinutes { get; set; } = 5;
 
@@ -122,6 +138,8 @@ public static class ResourceKeys
     public static string Rds(long targetId, string instance) => $"{targetId}:rds:{instance}";
     public static string RdsCluster(long targetId, string cluster) => $"{targetId}:rdscluster:{cluster}";
     public static string Cache(long targetId, string id) => $"{targetId}:cache:{id}";
+    public static string Ec2(long targetId, string instanceId) => $"{targetId}:ec2:{instanceId}";
+    public static string LoadBalancer(long targetId, string name) => $"{targetId}:elb:{name}";
 }
 
 public static class AwsRegions

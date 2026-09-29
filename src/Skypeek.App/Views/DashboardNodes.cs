@@ -23,6 +23,15 @@ public enum NodeKind
     RdsInstance,
     Cache,
     CacheNode,
+    Ec2Instance,
+    LoadBalancer,
+    TargetGroup,
+    // Network tab
+    Vpc,
+    Subnet,
+    NetworkInterface,
+    SecurityGroup,
+    ElasticIp,
 }
 
 /// <summary>One row of the dashboard tree. <see cref="Payload"/> drives the details panel via implicit DataTemplates.</summary>
@@ -34,7 +43,13 @@ public sealed partial class DashNode : ObservableObject
     public string? Subtitle { get; init; }
     public string? Right { get; set; }
     public HealthLevel Level { get; set; } = HealthLevel.Ok;
-    public bool Dim { get; init; }
+    public bool Dim { get; set; }
+    /// <summary>A resource the user hid; only shown with "Show hidden".</summary>
+    public bool IsHiddenResource { get; set; }
+    /// <summary>The resource behind the row (hide/unhide from the context menu).</summary>
+    public ResourceStatus? Resource => Payload as ResourceStatus;
+    public bool CanHide => Resource is { IsHidden: false };
+    public bool CanUnhide => Resource is { IsHidden: true };
     public int ProblemCount { get; set; }
     public object? Payload { get; init; }
     /// <summary>Small usage bars shown after the title (CPU, memory, connections, disk).</summary>
@@ -81,6 +96,7 @@ public sealed class TargetDetail
     public string? ElevatedState { get; init; }
     public string? Account { get; init; }
     public required string Catalog { get; init; }
+    public required string Network { get; init; }
     public required string Health { get; init; }
     public required string Metrics { get; init; }
     public string? Errors { get; init; }
@@ -166,8 +182,30 @@ public sealed record EcsContainerDetail(EcsServiceStatus Service, EcsTaskInfo Ta
 /// <summary>A cache node selected in the tree (the cache itself is the owning resource).</summary>
 public sealed record CacheNodeDetail(CacheStatus Cache, CacheNodeView View);
 
+/// <summary>A target group of a load balancer, with its targets.</summary>
+public sealed record TargetGroupDetail(LoadBalancerStatus LoadBalancer, TargetGroupInfo Group)
+{
+    public string ConsoleUrl => LoadBalancer.TargetGroupConsoleUrl(Group);
+    public IReadOnlyList<LbTargetInfo> Targets => Group.Targets;
+}
+
+/// <summary>The EC2 group: which instances it lists.</summary>
+public sealed class Ec2GroupDetail
+{
+    public required Target Target { get; init; }
+    public int Count { get; init; }
+    public int Running { get; init; }
+    public bool IncludeEb { get; init; }
+    public string Summary => $"{Count} instance(s), {Running} running. " + (IncludeEb
+        ? "Instances managed by Elastic Beanstalk are listed here too (and under their environment)."
+        : "Instances managed by Elastic Beanstalk are shown under their environment, not here.");
+}
+
 /// <summary>Row in the suppressions list; <see cref="Rule"/> is the AlarmSuppression or CauseSuppression to remove.</summary>
 public sealed record SuppressionRow(object Rule, string Pattern, string Scope);
+
+/// <summary>A hidden resource in the suppressions list; <see cref="Key"/> is removed from the hidden set to unhide it.</summary>
+public sealed record HiddenRow(string Key, string Name, string Scope);
 
 /// <summary>Everything currently suppressed, shown from the dashboard toolbar.</summary>
 public sealed class SuppressionsDetail
@@ -175,20 +213,41 @@ public sealed class SuppressionsDetail
     public required string TargetTracking { get; init; }
     public required IReadOnlyList<SuppressionRow> Alarms { get; init; }
     public required IReadOnlyList<SuppressionRow> Causes { get; init; }
+    public IReadOnlyList<HiddenRow> Hidden { get; init; } = [];
 
-    public static SuppressionsDetail From(AppSettings settings, IReadOnlyList<Target> targets) => new()
+    public static SuppressionsDetail From(AppSettings settings, IReadOnlyList<Target> targets, IReadOnlyList<TargetHealth>? health = null) => new()
     {
+        Hidden = settings.HiddenResources.Select(key =>
+        {
+            var resource = health?.SelectMany(h => h.AllResources).FirstOrDefault(r => r.ResourceKey == key);
+            var parts = key.Split(':', 3);
+            var target = parts.Length == 3 && long.TryParse(parts[0], out var id) ? targets.FirstOrDefault(t => t.Id == id)?.DisplayName : null;
+            return new HiddenRow(key, resource?.DisplayName ?? (parts.Length == 3 ? parts[2] : key),
+                $"{(parts.Length == 3 ? KindName(parts[1]) : "resource")} · {target ?? "removed target"}{(resource is null ? " · not seen in the last poll" : "")}");
+        }).OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase).ToList(),
         TargetTracking = settings.IgnoreTargetTrackingAlarms
             ? "Auto-scaling target-tracking alarms (TargetTracking-*) are ignored (Settings → Suppressions & thresholds)."
             : "Auto-scaling target-tracking alarms are counted.",
         Alarms = settings.SuppressedAlarms.Select(s => new SuppressionRow(s, s.Pattern, s.Scope(targets))).ToList(),
         Causes = settings.SuppressedCauses.Select(s => new SuppressionRow(s, s.Pattern, s.Scope(targets))).ToList(),
     };
+
+    private static string KindName(string kind) => kind switch
+    {
+        "eb" => "Elastic Beanstalk environment",
+        "ecs" => "ECS service",
+        "rds" => "RDS instance",
+        "rdscluster" => "RDS cluster",
+        "cache" => "ElastiCache",
+        "ec2" => "EC2 instance",
+        "elb" => "load balancer",
+        _ => kind,
+    };
 }
 
 public static class DashboardTreeBuilder
 {
-    public static List<DashNode> Build(AppSession session, bool problemsOnly)
+    public static List<DashNode> Build(AppSession session, bool problemsOnly, bool showHidden = false)
     {
         var healthById = session.Health.Snapshot().ToDictionary(h => h.TargetId);
         var nodes = new List<DashNode>();
@@ -229,7 +288,7 @@ public static class DashboardTreeBuilder
                 foreach (var kind in Enum.GetValues<JobKind>())
                     if (session.Scheduler.GetState(target.Id, kind) is { LastFailed: true } job)
                     {
-                        var what = kind switch { JobKind.Catalog => "Secrets/parameters list", JobKind.Health => "Health poll", _ => "Metrics poll" };
+                        var what = kind switch { JobKind.Catalog => "Secrets/parameters list", JobKind.Health => "Health poll", JobKind.Network => "Network download", _ => "Metrics poll" };
                         children.Add(new DashNode
                         {
                             Key = $"{target.Id}:job:{kind}", Kind = NodeKind.Message, Title = $"{what} failed: {job.LastError}", Level = HealthLevel.Warn, ProblemCount = 1,
@@ -252,6 +311,10 @@ public static class DashboardTreeBuilder
                     children.Add(RdsGroup(target, health, problemsOnly));
                 if (target.CacheEnabled)
                     children.Add(CacheGroup(target, health, problemsOnly));
+                if (target.Ec2Enabled)
+                    children.Add(Ec2Group(target, health, problemsOnly, session.Settings.Settings.Ec2IncludeEbInstances));
+                if (target.ElbEnabled)
+                    children.Add(LoadBalancerGroup(target, health, problemsOnly));
                 children.Add(AlarmGroup(target, health, problemsOnly));
                 if (health.HealthError is { } he)
                     children.Add(new DashNode { Key = $"{target.Id}:herr", Kind = NodeKind.Message, Title = $"Health poll error: {he}", Level = HealthLevel.Warn, ProblemCount = 1, Payload = new MessageDetail(he) });
@@ -259,6 +322,8 @@ public static class DashboardTreeBuilder
                     children.Add(new DashNode { Key = $"{target.Id}:merr", Kind = NodeKind.Message, Title = $"Metrics poll error: {me}", Level = HealthLevel.Warn, ProblemCount = 1, Payload = new MessageDetail(me) });
             }
 
+            foreach (var group in children)
+                ApplyHidden(group, showHidden);
             var kept = problemsOnly ? children.Where(c => c.ProblemCount > 0).ToList() : children;
             if (problemsOnly && kept.Count == 0)
                 continue;
@@ -278,6 +343,49 @@ public static class DashboardTreeBuilder
             nodes.Add(node);
         }
         return nodes;
+    }
+
+    /// <summary>
+    /// Removes hidden resources (with their subtree) from a group, or with <paramref name="showHidden"/> keeps them
+    /// dimmed and not counted. Group totals are recounted afterwards.
+    /// </summary>
+    private static void ApplyHidden(DashNode group, bool showHidden)
+    {
+        var changed = false;
+        foreach (var child in group.Children.ToList())
+        {
+            if (child.Payload is ResourceStatus { IsHidden: true })
+            {
+                changed = true;
+                if (!showHidden)
+                {
+                    group.Children.Remove(child);
+                    continue;
+                }
+                MarkHidden(child);
+                continue;
+            }
+            var before = child.ProblemCount;
+            ApplyHidden(child, showHidden);
+            changed |= child.ProblemCount != before;
+        }
+        if (!changed)
+            return;
+        // Recount from the remaining children: a hidden problem no longer counts.
+        group.ProblemCount = (group.Payload is ResourceStatus { IsProblem: true } ? 1 : 0) + group.Children.Sum(c => c.ProblemCount);
+        group.Level = group.Payload is ResourceStatus own ? own.Level
+            : group.Children.Where(c => !c.IsHiddenResource).Select(c => c.Level).DefaultIfEmpty(HealthLevel.Ok).Max() is var max && max >= HealthLevel.Warn ? max : HealthLevel.Ok;
+        if (group.Right is { } right && right.IndexOf('/') is var slash and > 0 && int.TryParse(right[..slash], out _))
+            group.Right = $"{group.ProblemCount}{right[slash..]}";
+    }
+
+    private static void MarkHidden(DashNode node)
+    {
+        node.IsHiddenResource = true;
+        node.Dim = true;
+        node.ProblemCount = 0;
+        foreach (var child in node.Children)
+            MarkHidden(child);
     }
 
     private static DashNode EbGroup(Target target, TargetHealth health, bool problemsOnly, bool byApplication)
@@ -333,6 +441,11 @@ public static class DashboardTreeBuilder
         Summarize(group, health.Eb.Count);
         return group;
     }
+
+    /// <summary>The dashboard node of an EC2 instance: its own row, or the EB environment it belongs to.</summary>
+    public static string? InstanceKey(TargetHealth health, string instanceId) =>
+        health.Ec2.FirstOrDefault(i => i.Snapshot.InstanceId == instanceId && !i.IsHidden)?.ResourceKey
+        ?? health.Eb.FirstOrDefault(env => env.Snapshot.InstanceIds.Contains(instanceId) && !env.IsHidden)?.ResourceKey;
 
     public static EbApplicationDetail ApplicationDetail(Target target, string application, IReadOnlyList<EbEnvironmentStatus> environments) =>
         new() { Target = target, Name = application, Environments = environments };
@@ -525,6 +638,87 @@ public static class DashboardTreeBuilder
         return group;
     }
 
+    private static DashNode Ec2Group(Target target, TargetHealth health, bool problemsOnly, bool includeEb)
+    {
+        var group = new DashNode
+        {
+            Key = $"{target.Id}:ec2",
+            Kind = NodeKind.Group,
+            Title = "EC2 instances",
+            Payload = new Ec2GroupDetail { Target = target, Count = health.Ec2.Count, Running = health.Ec2.Count(e => e.Snapshot.IsRunning), IncludeEb = includeEb },
+        };
+        foreach (var ec2 in health.Ec2.OrderByDescending(e => e.Level).ThenBy(e => e.Snapshot.IsStopped).ThenBy(e => e.Snapshot.Title, StringComparer.OrdinalIgnoreCase))
+        {
+            if (problemsOnly && ec2.Level < HealthLevel.Warn)
+                continue;
+            var s = ec2.Snapshot;
+            group.Children.Add(new DashNode
+            {
+                Key = ec2.ResourceKey,
+                Kind = NodeKind.Ec2Instance,
+                Title = s.Title,
+                Subtitle = ec2.Level >= HealthLevel.Warn ? ec2.ReasonText
+                    : string.Join(" · ", new[] { s.State, s.InstanceType, s.PrivateIp, s.OwnerText }.Where(x => !string.IsNullOrEmpty(x))),
+                Gauges = Gauge.List(Gauge.For("CPU", ec2.Cpu), Gauge.For("Mem", ec2.Memory)),
+                SearchText = string.Join(' ', new[] { s.InstanceId, s.PublicIp, s.PrivateDns, s.PublicDns, s.VpcId, s.SubnetId, s.ImageId, s.EbEnvironment, s.AutoScalingGroup }
+                    .Concat(s.Interfaces.SelectMany(i => i.PrivateIps.Append(i.PublicIp ?? "").Concat(i.Ipv6)))
+                    .Concat(s.SecurityGroups.SelectMany(g => new[] { g.Id, g.Name }))),
+                Level = s.IsStopped ? HealthLevel.Unknown : ec2.Level,
+                Dim = s.IsStopped,
+                ProblemCount = ec2.Level >= HealthLevel.Warn ? 1 : 0,
+                Payload = ec2,
+            });
+        }
+        Summarize(group, health.Ec2.Count);
+        return group;
+    }
+
+    private static DashNode LoadBalancerGroup(Target target, TargetHealth health, bool problemsOnly)
+    {
+        var group = new DashNode
+        {
+            Key = $"{target.Id}:elb",
+            Kind = NodeKind.Group,
+            Title = "Load balancers",
+            Payload = new MessageDetail($"{health.LoadBalancers.Count} load balancer(s) with {health.LoadBalancers.Sum(l => l.Snapshot.TargetGroups.Count)} target group(s). "
+                                        + "A target group with unhealthy targets is a warning; one with no healthy target is critical."),
+        };
+        foreach (var lb in health.LoadBalancers.OrderByDescending(l => l.Level).ThenBy(l => l.DisplayName, StringComparer.OrdinalIgnoreCase))
+        {
+            if (problemsOnly && lb.Level < HealthLevel.Warn)
+                continue;
+            var s = lb.Snapshot;
+            var node = new DashNode
+            {
+                Key = lb.ResourceKey,
+                Kind = NodeKind.LoadBalancer,
+                Title = s.Name,
+                Subtitle = lb.Level >= HealthLevel.Warn ? lb.ReasonText : $"{s.TypeText} · {s.Scheme} · {s.State} · {s.TargetGroups.Count} target group(s)",
+                Gauges = s.Counted == 0 ? [] : [new Gauge("Healthy", s.Healthy * 100.0 / s.Counted, $"{s.Healthy}/{s.Counted}",
+                    s.Healthy == s.Counted ? HealthLevel.Ok : s.Healthy == 0 ? HealthLevel.Critical : HealthLevel.Warn)],
+                SearchText = $"{s.DnsName} {s.Arn} {s.VpcId} {string.Join(' ', s.SecurityGroups)} {string.Join(' ', s.TargetGroups.SelectMany(g => g.Targets.Select(t => t.Id)))}",
+                Level = lb.Level,
+                ProblemCount = lb.Level >= HealthLevel.Warn ? 1 : 0,
+                Payload = lb,
+            };
+            foreach (var tg in s.TargetGroups)
+                node.Children.Add(new DashNode
+                {
+                    Key = $"{lb.ResourceKey}:tg:{tg.Name}",
+                    Kind = NodeKind.TargetGroup,
+                    Title = tg.Name,
+                    Subtitle = $"{tg.ProtocolText} · {tg.TargetType} · {tg.HealthText}{(tg.Error is null ? "" : " · health unknown")}",
+                    Gauges = tg.Counted == 0 ? [] : [new Gauge("Healthy", tg.Healthy * 100.0 / tg.Counted, $"{tg.Healthy}/{tg.Counted}", tg.Level == HealthLevel.Unknown ? HealthLevel.Ok : tg.Level)],
+                    SearchText = $"{tg.Arn} {string.Join(' ', tg.Targets.Select(t => t.Id))}",
+                    Level = tg.Level,
+                    Payload = new TargetGroupDetail(lb, tg),
+                });
+            group.Children.Add(node);
+        }
+        Summarize(group, health.LoadBalancers.Count);
+        return group;
+    }
+
     private static DashNode EcsGroup(Target target, TargetHealth health, bool problemsOnly)
     {
         var group = new DashNode { Key = $"{target.Id}:ecs", Kind = NodeKind.Group, Title = "ECS", Payload = new MessageDetail($"{health.Ecs.Count} service(s).") };
@@ -595,7 +789,8 @@ public static class DashboardTreeBuilder
     private static DashNode AlarmGroup(Target target, TargetHealth health, bool problemsOnly)
     {
         var owners = new Dictionary<AlarmInfo, string>(ReferenceEqualityComparer.Instance);
-        foreach (var r in health.AllResources) foreach (var a in r.Alarms) owners[a] = r.DisplayName;
+        // Alarms of hidden resources are hidden with them.
+        foreach (var r in health.AllResources.Where(r => !r.IsHidden)) foreach (var a in r.Alarms) owners[a] = r.DisplayName;
 
         var alarms = owners.Keys.Concat(health.OtherAlarms)
             .Where(a => a.IsActive || a.IsRecent)
@@ -608,7 +803,7 @@ public static class DashboardTreeBuilder
             Key = $"{target.Id}:alarms",
             Kind = NodeKind.Group,
             Title = "CloudWatch alarms",
-            Payload = new MessageDetail($"CPU/memory alarms, and every RDS/ElastiCache alarm, that are in ALARM or fired recently. {suppressed} active alarm(s) are suppressed."),
+            Payload = new MessageDetail($"CPU/memory alarms, EC2 status-check alarms, and every RDS, ElastiCache and load balancer alarm, that are in ALARM or fired recently. {suppressed} active alarm(s) are suppressed."),
         };
         foreach (var alarm in alarms)
         {
@@ -715,6 +910,7 @@ public static class DashboardTreeBuilder
                 : target.UsesSameKey ? $"⚠ same key as read-only (confirmed exception) · {Describe(elevated)}"
                 : Describe(elevated),
             Catalog = Job(JobKind.Catalog),
+            Network = Job(JobKind.Network),
             Health = Job(JobKind.Health),
             Metrics = Job(JobKind.Metrics),
             Errors = string.Join("\n", new[] { health?.HealthError, health?.MetricsError }.Where(e => e is not null)) is { Length: > 0 } err ? err : null,

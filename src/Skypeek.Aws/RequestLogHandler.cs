@@ -9,6 +9,7 @@ using Ecs = Amazon.ECS.Model;
 using ElastiCache = Amazon.ElastiCache.Model;
 using Rds = Amazon.RDS.Model;
 using Eb = Amazon.ElasticBeanstalk.Model;
+using Elb = Amazon.ElasticLoadBalancingV2.Model;
 using Secrets = Amazon.SecretsManager.Model;
 using Ssm = Amazon.SimpleSystemsManagement.Model;
 using Sso = Amazon.SSO.Model;
@@ -120,8 +121,38 @@ public static class RequestParameterRedactor
         ElastiCache.DescribeEventsRequest r => Join(("SourceIdentifier", r.SourceIdentifier), ("StartTime", r.StartTime?.ToString("u")), ("Marker", Token(r.Marker))),
         // Never the access token.
         Sso.GetRoleCredentialsRequest r => Join(("AccountId", r.AccountId), ("RoleName", r.RoleName)),
+
+        Ec2.DescribeInstanceStatusRequest r => Join(("Instances", r.InstanceIds?.Count), ("IncludeAllInstances", r.IncludeAllInstances), ("NextToken", Token(r.NextToken))),
+        Ec2.DescribeVpcsRequest r => Join(("NextToken", Token(r.NextToken))),
+        Ec2.DescribeSubnetsRequest r => Join(("NextToken", Token(r.NextToken))),
+        Ec2.DescribeNetworkInterfacesRequest r => Join(("NextToken", Token(r.NextToken))),
+        Ec2.DescribeSecurityGroupsRequest r => Join(("GroupIds", r.GroupIds is { Count: > 0 } g ? string.Join(",", g) : null), ("NextToken", Token(r.NextToken))),
+        Ec2.DescribeSecurityGroupRulesRequest r => Join(("Filters", r.Filters?.Count), ("RuleIds", r.SecurityGroupRuleIds is { Count: > 0 } ids ? string.Join(",", ids) : null), ("NextToken", Token(r.NextToken))),
+        Ec2.DescribeAddressesRequest => "",
+        Elb.DescribeLoadBalancersRequest r => Join(("LoadBalancerArns", r.LoadBalancerArns?.Count), ("Marker", Token(r.Marker))),
+        Elb.DescribeTargetGroupsRequest r => Join(("LoadBalancerArn", r.LoadBalancerArn), ("Marker", Token(r.Marker))),
+        Elb.DescribeTargetHealthRequest r => Join(("TargetGroupArn", r.TargetGroupArn)),
+        Elb.DescribeListenersRequest r => Join(("LoadBalancerArn", r.LoadBalancerArn), ("Marker", Token(r.Marker))),
+        Elb.DescribeRulesRequest r => Join(("ListenerArn", r.ListenerArn), ("Marker", Token(r.Marker))),
+
+        // Actions: which instance / group / rule and what the rule allows; rule descriptions are not logged.
+        Ec2.StartInstancesRequest r => Join(("InstanceIds", r.InstanceIds is null ? null : string.Join(",", r.InstanceIds))),
+        Ec2.StopInstancesRequest r => Join(("InstanceIds", r.InstanceIds is null ? null : string.Join(",", r.InstanceIds)), ("Force", r.Force), ("Hibernate", r.Hibernate)),
+        Ec2.AuthorizeSecurityGroupIngressRequest r => Join(("GroupId", r.GroupId), ("Rule", Permission(r.IpPermissions))),
+        Ec2.AuthorizeSecurityGroupEgressRequest r => Join(("GroupId", r.GroupId), ("Rule", Permission(r.IpPermissions))),
+        Ec2.RevokeSecurityGroupIngressRequest r => Join(("GroupId", r.GroupId), ("RuleIds", r.SecurityGroupRuleIds is null ? null : string.Join(",", r.SecurityGroupRuleIds))),
+        Ec2.RevokeSecurityGroupEgressRequest r => Join(("GroupId", r.GroupId), ("RuleIds", r.SecurityGroupRuleIds is null ? null : string.Join(",", r.SecurityGroupRuleIds))),
+        Ec2.ModifySecurityGroupRulesRequest r => Join(("GroupId", r.GroupId), ("Rules", r.SecurityGroupRules is null ? null : string.Join("; ", r.SecurityGroupRules.Select(u =>
+            $"{u.SecurityGroupRuleId}: {u.SecurityGroupRule?.IpProtocol} {u.SecurityGroupRule?.FromPort}-{u.SecurityGroupRule?.ToPort} " +
+            $"{u.SecurityGroupRule?.CidrIpv4 ?? u.SecurityGroupRule?.CidrIpv6 ?? u.SecurityGroupRule?.PrefixListId ?? u.SecurityGroupRule?.ReferencedGroupId}")))),
         _ => "",
     };
+
+    private static string? Permission(List<Ec2.IpPermission>? permissions) => permissions is null ? null : string.Join("; ", permissions.Select(p =>
+        $"{p.IpProtocol} {p.FromPort}-{p.ToPort} " + string.Join(",", (p.Ipv4Ranges ?? []).Select(x => x.CidrIp)
+            .Concat((p.Ipv6Ranges ?? []).Select(x => x.CidrIpv6))
+            .Concat((p.PrefixListIds ?? []).Select(x => x.Id))
+            .Concat((p.UserIdGroupPairs ?? []).Select(x => x.GroupId)))));
 
     private static string? Token(string? nextToken) => string.IsNullOrEmpty(nextToken) ? null : "yes";
 

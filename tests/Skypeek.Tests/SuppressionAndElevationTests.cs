@@ -203,6 +203,49 @@ public class ElevationTests
     }
 
     [Fact]
+    public async Task Ec2_power_and_security_group_changes_use_the_elevated_key_and_typed_confirmation_where_it_matters()
+    {
+        using var dir = new TempDir();
+        var monitor = await Monitor(dir);
+        var approver = new Approver(false);
+        using var factory = new AwsClientFactory();
+        var gateway = new AwsGateway(monitor, factory, new CapturingSink(), approver);
+        var instance = new Ec2InstanceSnapshot
+        {
+            InstanceId = "i-0abc", Name = "bastion", State = "running", PublicIp = "203.0.113.9",
+            Tags = new() { ["aws:autoscaling:groupName"] = "bastion-asg" },
+        };
+
+        await Assert.ThrowsAsync<ElevationDeniedException>(() => gateway.RebootEc2InstanceAsync(Target, instance, CancellationToken.None));
+        await Assert.ThrowsAsync<ElevationDeniedException>(() => gateway.StopEc2InstanceAsync(Target, instance, CancellationToken.None));
+        Assert.All(approver.Requests, r => Assert.Equal("123456789012_AWSAdministratorAccess", r.Profile));
+        Assert.Null(approver.Requests[0].ConfirmPhrase);
+        var stop = approver.Requests[1];
+        Assert.Equal("i-0abc", stop.ConfirmPhrase);
+        Assert.Contains("public IP 203.0.113.9 is released", stop.Explanation);
+        Assert.Contains("Auto Scaling group bastion-asg", stop.Explanation);
+
+        var group = new SecurityGroupInfo { Id = "sg-1", Name = "web", VpcId = "vpc-1" };
+        var https = new SecurityGroupRuleSpec(false, "tcp", 443, 443, RuleSourceKind.Ipv4, "10.0.0.0/16", "internal");
+        var world = https with { Source = "0.0.0.0/0" };
+        approver.Requests.Clear();
+        await Assert.ThrowsAsync<ElevationDeniedException>(() => gateway.AddSecurityGroupRuleAsync(Target, group, https, CancellationToken.None));
+        await Assert.ThrowsAsync<ElevationDeniedException>(() => gateway.AddSecurityGroupRuleAsync(Target, group, world, CancellationToken.None));
+        var rule = new SecurityGroupRuleInfo { RuleId = "sgr-1", GroupId = "sg-1", Protocol = "tcp", FromPort = 22, ToPort = 22, CidrIpv4 = "10.0.0.0/8" };
+        await Assert.ThrowsAsync<ElevationDeniedException>(() => gateway.DeleteSecurityGroupRuleAsync(Target, group, rule, CancellationToken.None));
+        Assert.Null(approver.Requests[0].ConfirmPhrase);
+        Assert.Equal("sg-1", approver.Requests[1].ConfirmPhrase);
+        Assert.Contains("WHOLE INTERNET", approver.Requests[1].Explanation);
+        Assert.Equal("sg-1", approver.Requests[2].ConfirmPhrase);
+        Assert.Contains("inbound TCP port 22 from 10.0.0.0/8", approver.Requests[2].Explanation);
+
+        // Invalid rules never reach the approval dialog.
+        await Assert.ThrowsAsync<ArgumentException>(() => gateway.AddSecurityGroupRuleAsync(Target, group, https with { Source = "10.0.0.300/16" }, CancellationToken.None));
+        await Assert.ThrowsAsync<ArgumentException>(() => gateway.UpdateSecurityGroupRuleAsync(Target, group, rule, rule.ToSpec() with { IsEgress = true }, CancellationToken.None));
+        Assert.Equal(3, approver.Requests.Count);
+    }
+
+    [Fact]
     public async Task Same_key_for_both_still_asks_before_every_elevated_action()
     {
         using var dir = new TempDir();

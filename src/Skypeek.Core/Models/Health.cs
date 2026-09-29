@@ -237,6 +237,11 @@ public abstract class ResourceStatus
     /// <summary>What the <see cref="Memory"/> slot measures (RDS uses it for connections as % of max_connections).</summary>
     [JsonIgnore] public virtual string MemoryLabel => "Memory";
 
+    /// <summary>The user hid this resource from the dashboard (set from the settings on every recompute).</summary>
+    [JsonIgnore] public bool IsHidden { get; set; }
+    /// <summary>Counts as a problem in the tray, the tree and toasts.</summary>
+    [JsonIgnore] public bool IsProblem => !IsHidden && Level >= HealthLevel.Warn;
+
     [JsonIgnore] public int ActiveAlarmCount => Alarms.Count(a => a.CountsAsProblem);
     [JsonIgnore] public int SuppressedAlarmCount => Alarms.Count(a => a.IsActive && a.Suppressed);
     [JsonIgnore] public int RecentAlarmCount => Alarms.Count(a => a.IsRecent);
@@ -320,6 +325,8 @@ public sealed class TargetHealth
     public List<RdsInstanceStatus> Rds { get; set; } = [];
     public List<RdsClusterStatus> RdsClusters { get; set; } = [];
     public List<CacheStatus> Caches { get; set; } = [];
+    public List<Ec2InstanceStatus> Ec2 { get; set; } = [];
+    public List<LoadBalancerStatus> LoadBalancers { get; set; } = [];
     public List<AlarmInfo> OtherAlarms { get; set; } = [];
     public DateTime? HealthUpdated { get; set; }
     public DateTime? MetricsUpdated { get; set; }
@@ -329,7 +336,7 @@ public sealed class TargetHealth
     /// <summary>Every monitored resource of the target.</summary>
     [JsonIgnore]
     public IEnumerable<ResourceStatus> AllResources =>
-        Eb.Cast<ResourceStatus>().Concat(Ecs).Concat(Rds).Concat(RdsClusters).Concat(Caches);
+        Eb.Cast<ResourceStatus>().Concat(Ecs).Concat(Rds).Concat(RdsClusters).Concat(Caches).Concat(Ec2).Concat(LoadBalancers);
 }
 
 public sealed record MetricQuery(string Id, string Namespace, string MetricName, IReadOnlyDictionary<string, string> Dimensions, int PeriodSeconds = 60, string Stat = "Average");

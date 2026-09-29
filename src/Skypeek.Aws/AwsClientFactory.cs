@@ -6,6 +6,7 @@ using Amazon.EC2;
 using Amazon.ECS;
 using Amazon.ElastiCache;
 using Amazon.ElasticBeanstalk;
+using Amazon.ElasticLoadBalancingV2;
 using Amazon.RDS;
 using Amazon.Runtime;
 using Amazon.SecretsManager;
@@ -30,6 +31,7 @@ public sealed class AwsClientSet : IDisposable
     private readonly Lazy<AmazonEC2Client> _ec2;
     private readonly Lazy<AmazonRDSClient> _rds;
     private readonly Lazy<AmazonElastiCacheClient> _elastiCache;
+    private readonly Lazy<AmazonElasticLoadBalancingV2Client> _elb;
 
     public AwsClientSet(ProfileCredentials creds, string region)
     {
@@ -49,6 +51,7 @@ public sealed class AwsClientSet : IDisposable
         _ec2 = new(() => new AmazonEC2Client(_credentials, Configure(new AmazonEC2Config())));
         _rds = new(() => new AmazonRDSClient(_credentials, Configure(new AmazonRDSConfig())));
         _elastiCache = new(() => new AmazonElastiCacheClient(_credentials, Configure(new AmazonElastiCacheConfig())));
+        _elb = new(() => new AmazonElasticLoadBalancingV2Client(_credentials, Configure(new AmazonElasticLoadBalancingV2Config())));
     }
 
     public string Fingerprint { get; }
@@ -62,6 +65,7 @@ public sealed class AwsClientSet : IDisposable
     public AmazonEC2Client Ec2 => _ec2.Value;
     public AmazonRDSClient Rds => _rds.Value;
     public AmazonElastiCacheClient ElastiCache => _elastiCache.Value;
+    public AmazonElasticLoadBalancingV2Client Elb => _elb.Value;
 
     private T Configure<T>(T config) where T : ClientConfig
     {
@@ -85,6 +89,7 @@ public sealed class AwsClientSet : IDisposable
         (_credentials as IDisposable)?.Dispose();
         if (_rds.IsValueCreated) _rds.Value.Dispose();
         if (_elastiCache.IsValueCreated) _elastiCache.Value.Dispose();
+        if (_elb.IsValueCreated) _elb.Value.Dispose();
     }
 }
 

@@ -386,6 +386,8 @@ public class ReadOnlyGuardTests
             typeof(Amazon.ElastiCache.AmazonElastiCacheClient).Assembly,
             typeof(Amazon.SSO.AmazonSSOClient).Assembly,
             typeof(Amazon.ElasticLoadBalancingV2.AmazonElasticLoadBalancingV2Client).Assembly,
+            typeof(Amazon.Pricing.AmazonPricingClient).Assembly,
+            typeof(Amazon.CostExplorer.AmazonCostExplorerClient).Assembly,
         };
 
         var forbidden = sdkAssemblies
@@ -408,6 +410,9 @@ public class ReadOnlyGuardTests
         Assert.Contains("Amazon.ElasticLoadBalancingV2.Model.DeleteLoadBalancerRequest", forbidden);
         Assert.Contains("Amazon.ElasticLoadBalancingV2.Model.RegisterTargetsRequest", forbidden);
         Assert.Contains("Amazon.ElasticLoadBalancingV2.Model.DeregisterTargetsRequest", forbidden);
+        // Cost tools only read: no budgets, anomaly monitors, cost categories or preferences.
+        Assert.Contains("Amazon.CostExplorer.Model.CreateAnomalyMonitorRequest", forbidden);
+        Assert.Contains("Amazon.CostExplorer.Model.UpdateCostAllocationTagsStatusRequest", forbidden);
         // Databases and caches are strictly read-only: no reboot, failover, modify or delete.
         Assert.Contains("Amazon.RDS.Model.RebootDBInstanceRequest", forbidden);
         Assert.Contains("Amazon.RDS.Model.FailoverDBClusterRequest", forbidden);

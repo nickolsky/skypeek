@@ -120,6 +120,9 @@
                 <StackPanel Orientation="Horizontal"><TextBlock Text="Default VPC" Style="{StaticResource Label}" /><TextBlock Text="{Binding Vpc.IsDefault}" Style="{StaticResource Value}" /></StackPanel>
                 <StackPanel Orientation="Horizontal"><TextBlock Text="Contains" Style="{StaticResource Label}" />
                     <TextBlock Style="{StaticResource Value}"><TextBlock.Text><MultiBinding StringFormat="{}{0} subnet(s) · {1} interface(s) · {2} security group(s)"><Binding Path="Subnets" /><Binding Path="Interfaces" /><Binding Path="Groups" /></MultiBinding></TextBlock.Text></TextBlock></StackPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Text="Internet" Style="{StaticResource Label}" /><TextBlock Text="{Binding AccessSummary}" Style="{StaticResource Value}" MaxWidth="520" /></StackPanel>
+                <TextBlock Text="Resource map" Style="{StaticResource SectionHeader}" />
+                <views:VpcMapView DataContext="{Binding Map}" />
             </StackPanel>
         </DataTemplate>
 
@@ -147,6 +150,22 @@
                 <StackPanel Orientation="Horizontal"><TextBlock Text="Zone" Style="{StaticResource Label}" /><TextBlock Text="{Binding Subnet.AvailabilityZone}" Style="{StaticResource Value}" /></StackPanel>
                 <StackPanel Orientation="Horizontal"><TextBlock Text="Kind" Style="{StaticResource Label}" />
                     <TextBlock Text="{Binding Subnet.KindDetail}" Style="{StaticResource Value}" MaxWidth="520" /></StackPanel>
+                <Border Style="{StaticResource Panel}" Margin="0,6,0,6">
+                    <StackPanel>
+                        <TextBlock Text="Internet access" Style="{StaticResource SectionHeader}" Margin="0,0,0,2" />
+                        <TextBlock Text="{Binding AccessText}" Style="{StaticResource Body}" TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding Routing.Ipv6Summary}" Style="{StaticResource Body}" TextWrapping="Wrap"
+                                   Visibility="{Binding Routing.Ipv6Summary, Converter={StaticResource NullToCollapsed}}" />
+                        <TextBlock Text="{Binding Routing.Warning}" Foreground="#FFFFB86B" TextWrapping="Wrap" Margin="0,4,0,0"
+                                   Visibility="{Binding Routing.Warning, Converter={StaticResource NullToCollapsed}}" />
+                        <TextBlock Text="{Binding Routing.Note}" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,4,0,0"
+                                   Visibility="{Binding Routing.Note, Converter={StaticResource NullToCollapsed}}" />
+                        <TextBlock Text="{Binding RouteTableText, StringFormat=Route table: {0}}" Style="{StaticResource Caption}" Margin="0,6,0,2" />
+                        <ItemsControl ItemsSource="{Binding Routes}">
+                            <ItemsControl.ItemTemplate><DataTemplate><TextBlock Text="{Binding}" Style="{StaticResource Body}" FontFamily="{StaticResource MonoFont}" TextWrapping="Wrap" /></DataTemplate></ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
                 <StackPanel Orientation="Horizontal" Margin="0,4,0,0"><TextBlock Text="Addresses" Style="{StaticResource Label}" VerticalAlignment="Center" />
                     <views:UsageBar Percent="{Binding Subnet.UsedPercent}" Level="{Binding Subnet.UsageLevel}" Width="90" Height="8" Margin="0,0,8,0" />
                     <TextBlock Text="{Binding Subnet.UsageText}" Style="{StaticResource Value}" VerticalAlignment="Center" /></StackPanel>
@@ -207,6 +226,32 @@
                     <TextBlock Text="Description" Style="{StaticResource Label}" /><TextBlock Text="{Binding Interface.Description}" Style="{StaticResource Value}" MaxWidth="520" /></StackPanel>
                 <TextBlock Text="Security groups" Style="{StaticResource SectionHeader}" />
                 <ContentPresenter Content="{Binding Interface.SecurityGroups}" ContentTemplate="{StaticResource GroupChips}" />
+            </StackPanel>
+        </DataTemplate>
+
+        <DataTemplate DataType="{x:Type views:GatewayDetail}">
+            <StackPanel>
+                <TextBlock Text="{Binding Title}" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource TextStrong}" />
+                <TextBlock Style="{StaticResource Caption}" Margin="0,0,0,6">
+                    <TextBlock.Text>
+                        <MultiBinding StringFormat="{}{0} · {1}">
+                            <Binding Path="Kind" />
+                            <Binding Path="Target.DisplayName" />
+                        </MultiBinding>
+                    </TextBlock.Text>
+                </TextBlock>
+                <WrapPanel Margin="0,0,0,6">
+                    <ui:Button Content="Open in console" Icon="{ui:SymbolIcon Open24}" Click="OnOpenConsole" Margin="0,0,6,4" />
+                    <ui:Button Content="Copy ID" Icon="{ui:SymbolIcon Copy24}" Click="OnCopyText" Tag="{Binding Id}" Margin="0,0,6,4" />
+                </WrapPanel>
+                <ItemsControl ItemsSource="{Binding Fields}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Orientation="Horizontal"><TextBlock Text="{Binding Key}" Style="{StaticResource Label}" /><TextBlock Text="{Binding Value}" Style="{StaticResource Value}" MaxWidth="520" /></StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock Text="{Binding UsedByText}" Style="{StaticResource Body}" TextWrapping="Wrap" Margin="0,8,0,0" />
             </StackPanel>
         </DataTemplate>
 

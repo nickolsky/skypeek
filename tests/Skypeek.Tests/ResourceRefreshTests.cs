@@ -100,6 +100,30 @@ public class ResourceRefreshTests
         public Task<IReadOnlyList<LogSource>> GetRdsLogSourcesAsync(Target target, RdsInstanceSnapshot db, CancellationToken ct) => throw new NotSupportedException();
         public Task<RdsLogPortion> DownloadRdsLogAsync(Target target, string instanceId, string fileName, string? marker, int? lines, CancellationToken ct) => throw new NotSupportedException();
 
+        public Dictionary<string, double> PriceByInstanceType { get; } = new() { ["t3.small"] = 0.0208 };
+        public int CostExplorerCalls { get; private set; }
+
+        public Task<IReadOnlyList<PriceItem>> GetPricesAsync(Target target, PriceQuery query, CancellationToken ct)
+        {
+            Calls.Add($"price:{query.Key}");
+            IReadOnlyList<PriceItem> items = query.Filters.TryGetValue("instanceType", out var type) && PriceByInstanceType.TryGetValue(type, out var usd)
+                ? [new PriceItem("BoxUsage:" + type, "Hrs", usd, "on demand", new Dictionary<string, string>())]
+                : [];
+            return Task.FromResult(items);
+        }
+
+        public Task<IReadOnlyDictionary<string, DateTime>> GetRdsExtendedSupportStartsAsync(Target target, string engine, CancellationToken ct)
+        {
+            Calls.Add($"support:{engine}");
+            return Task.FromResult<IReadOnlyDictionary<string, DateTime>>(new Dictionary<string, DateTime>());
+        }
+
+        public Task<ActualCosts> GetActualCostsAsync(Target target, CancellationToken ct)
+        {
+            CostExplorerCalls++;
+            return Task.FromResult(new ActualCosts { FetchedUtc = DateTime.UtcNow, MonthToDate = 12.5, LastMonth = 40, ResourceLast14Days = new() { ["i-web"] = 7 } });
+        }
+
         public List<Ec2InstanceSnapshot> Instances { get; } = [];
         public List<LoadBalancerSnapshot> LoadBalancers { get; } = [];
 
@@ -188,6 +212,69 @@ public class ResourceRefreshTests
         gateway.Calls.Clear();
         await health.RefreshResourceAsync(target, web, CancellationToken.None);
         Assert.Equal(["ec2:i-web", "metrics:1"], gateway.Calls);
+    }
+
+    private sealed class MemoryCostStore : ICostStore, INetworkStore
+    {
+        public List<CostSnapshot> Saved { get; } = [];
+        public void Save(long targetId, CostSnapshot snapshot) => Saved.Add(snapshot);
+        IReadOnlyList<CostSnapshot> ICostStore.LoadAll() => [];
+        public void Save(long targetId, NetworkSnapshot snapshot) { }
+        IReadOnlyList<NetworkSnapshot> INetworkStore.LoadAll() => [];
+    }
+
+    [Fact]
+    public async Task Costs_are_estimated_from_cached_list_prices_and_billed_costs_are_read_only_when_enabled()
+    {
+        var (_, settings, gateway, health, target) = Ec2Setup();
+        var store = new MemoryCostStore();
+        var costs = new CostService(gateway, store, settings, health, new NetworkService(gateway, store, settings));
+        await health.PollHealthAsync(target, CancellationToken.None);
+        var web = health.Get(1)!.Ec2.Single(e => e.Snapshot.InstanceId == "i-web");
+
+        // Off by default: nothing is shown or read.
+        Assert.Null(costs.For(web));
+        Assert.Empty(costs.MissingPrices(target, DateTime.UtcNow));
+
+        target.CostEnabled = true;
+        Assert.Equal(["ec2|t3.small|Linux"], costs.MissingPrices(target, DateTime.UtcNow));
+        gateway.Calls.Clear();
+        await costs.SyncAsync(target, forceActual: false, CancellationToken.None);
+        Assert.Equal(["price:ec2|t3.small|Linux"], gateway.Calls);
+        Assert.Equal(0, gateway.CostExplorerCalls);
+        var cost = costs.For(web)!;
+        Assert.Equal(0.0208 * 730, cost.Estimate!.MonthlyUsd, precision: 6);
+        Assert.Equal("~$15/mo", cost.Short);
+        // The stopped instance costs nothing for compute.
+        Assert.Equal(0, costs.For(health.Get(1)!.Ec2.Single(e => e.Snapshot.IsStopped))!.Estimate!.MonthlyUsd);
+
+        // Cached: the next sync asks for nothing.
+        gateway.Calls.Clear();
+        await costs.SyncAsync(target, forceActual: false, CancellationToken.None);
+        Assert.Empty(gateway.Calls);
+
+        // Cost Explorer only when enabled, at most twice a day unless forced.
+        target.CostExplorerEnabled = true;
+        await costs.SyncAsync(target, forceActual: false, CancellationToken.None);
+        await costs.SyncAsync(target, forceActual: false, CancellationToken.None);
+        Assert.Equal(1, gateway.CostExplorerCalls);
+        await costs.SyncAsync(target, forceActual: true, CancellationToken.None);
+        Assert.Equal(2, gateway.CostExplorerCalls);
+        Assert.Equal(7, costs.For(web)!.Actual14Days);
+    }
+
+    [Fact]
+    public async Task History_reads_the_chosen_range_with_coarser_points_for_longer_periods()
+    {
+        var (_, _, gateway, health, target) = Ec2Setup();
+        await health.PollHealthAsync(target, CancellationToken.None);
+        var web = health.Get(1)!.Ec2.Single(e => e.Snapshot.InstanceId == "i-web");
+
+        var hour = await health.GetHistoryAsync(target, web, TimeSpan.FromHours(1), CancellationToken.None);
+        Assert.Equal(60, gateway.LastQueries.Single().PeriodSeconds);
+        Assert.Equal("CPU", hour.Single().Metric);
+        await health.GetHistoryAsync(target, web, TimeSpan.FromDays(7), CancellationToken.None);
+        Assert.Equal(3600, gateway.LastQueries.Single().PeriodSeconds);
     }
 
     private static LoadBalancerSnapshot Alb(params (string Name, string[] States)[] groups) => new()

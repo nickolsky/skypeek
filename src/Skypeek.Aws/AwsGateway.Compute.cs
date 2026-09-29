@@ -404,6 +404,135 @@ public sealed partial class AwsGateway
 
             await Part("security groups", async () => snapshot.SecurityGroups = await ReadSecurityGroupsAsync(c, null, ct));
 
+            await Part("route tables", async () =>
+            {
+                string? token = null;
+                var pages = 0;
+                do
+                {
+                    var resp = await c.Ec2.DescribeRouteTablesAsync(new Ec2.DescribeRouteTablesRequest { MaxResults = 100, NextToken = token }, ct);
+                    snapshot.RouteTables.AddRange((resp.RouteTables ?? []).Select(t => new RouteTableInfo
+                    {
+                        Id = t.RouteTableId ?? "",
+                        Name = TagName(t.Tags),
+                        VpcId = t.VpcId ?? "",
+                        IsMain = (t.Associations ?? []).Any(a => a.Main == true),
+                        SubnetIds = (t.Associations ?? []).Select(a => a.SubnetId).Where(x => !string.IsNullOrEmpty(x)).ToList()!,
+                        Routes = (t.Routes ?? []).Select(r => new RouteInfo
+                        {
+                            Destination = r.DestinationCidrBlock ?? r.DestinationIpv6CidrBlock ?? r.DestinationPrefixListId ?? "?",
+                            Target = new[] { r.GatewayId, r.NatGatewayId, r.TransitGatewayId, r.VpcPeeringConnectionId, r.EgressOnlyInternetGatewayId,
+                                             r.NetworkInterfaceId, r.InstanceId, r.CarrierGatewayId, r.LocalGatewayId, r.CoreNetworkArn }
+                                .FirstOrDefault(x => !string.IsNullOrEmpty(x)),
+                            State = r.State?.Value,
+                            Origin = r.Origin?.Value,
+                        }).ToList(),
+                    }));
+                    token = resp.NextToken;
+                } while (!string.IsNullOrEmpty(token) && ++pages < MaxPages);
+            });
+
+            await Part("internet gateways", async () =>
+            {
+                string? token = null;
+                var pages = 0;
+                do
+                {
+                    var resp = await c.Ec2.DescribeInternetGatewaysAsync(new Ec2.DescribeInternetGatewaysRequest { MaxResults = 1000, NextToken = token }, ct);
+                    snapshot.InternetGateways.AddRange((resp.InternetGateways ?? []).Select(g => new InternetGatewayInfo
+                    {
+                        Id = g.InternetGatewayId ?? "",
+                        Name = TagName(g.Tags),
+                        VpcIds = (g.Attachments ?? []).Select(a => a.VpcId).Where(x => x is not null).ToList()!,
+                    }));
+                    token = resp.NextToken;
+                } while (!string.IsNullOrEmpty(token) && ++pages < MaxPages);
+                token = null;
+                pages = 0;
+                do
+                {
+                    var resp = await c.Ec2.DescribeEgressOnlyInternetGatewaysAsync(new Ec2.DescribeEgressOnlyInternetGatewaysRequest { MaxResults = 255, NextToken = token }, ct);
+                    snapshot.InternetGateways.AddRange((resp.EgressOnlyInternetGateways ?? []).Select(g => new InternetGatewayInfo
+                    {
+                        Id = g.EgressOnlyInternetGatewayId ?? "",
+                        Name = TagName(g.Tags),
+                        VpcIds = (g.Attachments ?? []).Select(a => a.VpcId).Where(x => x is not null).ToList()!,
+                        EgressOnly = true,
+                    }));
+                    token = resp.NextToken;
+                } while (!string.IsNullOrEmpty(token) && ++pages < MaxPages);
+            });
+
+            await Part("NAT gateways", async () =>
+            {
+                string? token = null;
+                var pages = 0;
+                do
+                {
+                    var resp = await c.Ec2.DescribeNatGatewaysAsync(new Ec2.DescribeNatGatewaysRequest { MaxResults = 1000, NextToken = token }, ct);
+                    snapshot.NatGateways.AddRange((resp.NatGateways ?? []).Where(n => n.State?.Value != "deleted").Select(n => new NatGatewayInfo
+                    {
+                        Id = n.NatGatewayId ?? "",
+                        Name = TagName(n.Tags),
+                        VpcId = n.VpcId,
+                        SubnetId = n.SubnetId,
+                        State = n.State?.Value ?? "",
+                        ConnectivityType = n.ConnectivityType?.Value ?? "public",
+                        PublicIps = (n.NatGatewayAddresses ?? []).Select(a => a.PublicIp).Where(x => !string.IsNullOrEmpty(x)).ToList()!,
+                        PrivateIps = (n.NatGatewayAddresses ?? []).Select(a => a.PrivateIp).Where(x => !string.IsNullOrEmpty(x)).ToList()!,
+                        FailureMessage = n.FailureMessage,
+                    }));
+                    token = resp.NextToken;
+                } while (!string.IsNullOrEmpty(token) && ++pages < MaxPages);
+            });
+
+            await Part("VPC endpoints", async () =>
+            {
+                string? token = null;
+                var pages = 0;
+                do
+                {
+                    var resp = await c.Ec2.DescribeVpcEndpointsAsync(new Ec2.DescribeVpcEndpointsRequest { MaxResults = 1000, NextToken = token }, ct);
+                    snapshot.Endpoints.AddRange((resp.VpcEndpoints ?? []).Select(e => new VpcEndpointInfo
+                    {
+                        Id = e.VpcEndpointId ?? "",
+                        Name = TagName(e.Tags),
+                        VpcId = e.VpcId ?? "",
+                        ServiceName = e.ServiceName ?? "",
+                        Type = e.VpcEndpointType?.Value ?? "",
+                        State = e.State?.Value,
+                        RouteTableIds = e.RouteTableIds ?? [],
+                        SubnetIds = e.SubnetIds ?? [],
+                    }));
+                    token = resp.NextToken;
+                } while (!string.IsNullOrEmpty(token) && ++pages < MaxPages);
+            });
+
+            await Part("peering connections", async () =>
+            {
+                string? token = null;
+                var pages = 0;
+                do
+                {
+                    var resp = await c.Ec2.DescribeVpcPeeringConnectionsAsync(new Ec2.DescribeVpcPeeringConnectionsRequest { MaxResults = 1000, NextToken = token }, ct);
+                    snapshot.Peerings.AddRange((resp.VpcPeeringConnections ?? []).Where(p => p.Status?.Code?.Value is not ("deleted" or "rejected" or "expired")).Select(p => new PeeringInfo
+                    {
+                        Id = p.VpcPeeringConnectionId ?? "",
+                        Name = TagName(p.Tags),
+                        RequesterVpcId = p.RequesterVpcInfo?.VpcId,
+                        RequesterOwner = p.RequesterVpcInfo?.OwnerId,
+                        RequesterRegion = p.RequesterVpcInfo?.Region,
+                        RequesterCidr = p.RequesterVpcInfo?.CidrBlock,
+                        AccepterVpcId = p.AccepterVpcInfo?.VpcId,
+                        AccepterOwner = p.AccepterVpcInfo?.OwnerId,
+                        AccepterRegion = p.AccepterVpcInfo?.Region,
+                        AccepterCidr = p.AccepterVpcInfo?.CidrBlock,
+                        Status = p.Status?.Code?.Value,
+                    }));
+                    token = resp.NextToken;
+                } while (!string.IsNullOrEmpty(token) && ++pages < MaxPages);
+            });
+
             snapshot.Error = errors.Count > 0 ? $"Could not read {string.Join(", ", errors)}" : null;
             return snapshot;
         });

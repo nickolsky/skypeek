@@ -50,6 +50,9 @@ internal static class Schema
         """
         CREATE TABLE network_snapshots (target_id INTEGER PRIMARY KEY, json TEXT NOT NULL, updated_at TEXT NOT NULL);
         """,
+        """
+        CREATE TABLE cost_snapshots (target_id INTEGER PRIMARY KEY, json TEXT NOT NULL, updated_at TEXT NOT NULL);
+        """,
     ];
 
     public static void Migrate(SqliteConnection connection)

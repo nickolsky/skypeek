@@ -10,6 +10,8 @@ using ElastiCache = Amazon.ElastiCache.Model;
 using Rds = Amazon.RDS.Model;
 using Eb = Amazon.ElasticBeanstalk.Model;
 using Elb = Amazon.ElasticLoadBalancingV2.Model;
+using Ce = Amazon.CostExplorer.Model;
+using Pricing = Amazon.Pricing.Model;
 using Secrets = Amazon.SecretsManager.Model;
 using Ssm = Amazon.SimpleSystemsManagement.Model;
 using Sso = Amazon.SSO.Model;
@@ -129,6 +131,15 @@ public static class RequestParameterRedactor
         Ec2.DescribeSecurityGroupsRequest r => Join(("GroupIds", r.GroupIds is { Count: > 0 } g ? string.Join(",", g) : null), ("NextToken", Token(r.NextToken))),
         Ec2.DescribeSecurityGroupRulesRequest r => Join(("Filters", r.Filters?.Count), ("RuleIds", r.SecurityGroupRuleIds is { Count: > 0 } ids ? string.Join(",", ids) : null), ("NextToken", Token(r.NextToken))),
         Ec2.DescribeAddressesRequest => "",
+        Pricing.GetProductsRequest r => Join(("ServiceCode", r.ServiceCode), ("Filters", r.Filters is null ? null : string.Join(",", r.Filters.Select(f => $"{f.Field}={f.Value}"))), ("NextToken", Token(r.NextToken))),
+        Ce.GetCostAndUsageRequest r => Join(("Start", r.TimePeriod?.Start), ("End", r.TimePeriod?.End), ("Granularity", r.Granularity?.Value), ("NextPageToken", Token(r.NextPageToken))),
+        Ce.GetCostAndUsageWithResourcesRequest r => Join(("Start", r.TimePeriod?.Start), ("End", r.TimePeriod?.End), ("Granularity", r.Granularity?.Value), ("NextPageToken", Token(r.NextPageToken))),
+        Ec2.DescribeRouteTablesRequest r => Join(("NextToken", Token(r.NextToken))),
+        Ec2.DescribeInternetGatewaysRequest r => Join(("NextToken", Token(r.NextToken))),
+        Ec2.DescribeEgressOnlyInternetGatewaysRequest r => Join(("NextToken", Token(r.NextToken))),
+        Ec2.DescribeNatGatewaysRequest r => Join(("NextToken", Token(r.NextToken))),
+        Ec2.DescribeVpcEndpointsRequest r => Join(("NextToken", Token(r.NextToken))),
+        Ec2.DescribeVpcPeeringConnectionsRequest r => Join(("NextToken", Token(r.NextToken))),
         Elb.DescribeLoadBalancersRequest r => Join(("LoadBalancerArns", r.LoadBalancerArns?.Count), ("Marker", Token(r.Marker))),
         Elb.DescribeTargetGroupsRequest r => Join(("LoadBalancerArn", r.LoadBalancerArn), ("Marker", Token(r.Marker))),
         Elb.DescribeTargetHealthRequest r => Join(("TargetGroupArn", r.TargetGroupArn)),

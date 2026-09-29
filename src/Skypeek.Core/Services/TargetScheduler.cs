@@ -81,6 +81,7 @@ public sealed class TargetScheduler : IDisposable
         JobKind.Catalog => t.SecretsEnabled || t.ParamsEnabled,
         JobKind.Health or JobKind.Metrics => t.HealthEnabled,
         JobKind.Network => t.NetworkEnabled,
+        JobKind.Costs => t.CostEnabled || t.CostExplorerEnabled,
         _ => false,
     };
 
@@ -90,6 +91,7 @@ public sealed class TargetScheduler : IDisposable
         JobKind.Health => t.HealthIntervalMinutes,
         JobKind.Metrics => t.MetricsIntervalMinutes,
         JobKind.Network => t.NetworkIntervalMinutes,
+        JobKind.Costs => 1440,
         _ => 0,
     };
 

@@ -32,6 +32,7 @@ public enum NodeKind
     NetworkInterface,
     SecurityGroup,
     ElasticIp,
+    Gateway,
 }
 
 /// <summary>One row of the dashboard tree. <see cref="Payload"/> drives the details panel via implicit DataTemplates.</summary>
@@ -101,6 +102,15 @@ public sealed class TargetDetail
     public required string Metrics { get; init; }
     public string? Errors { get; init; }
     public string? Cost { get; init; }
+
+    // ---- monthly cost (when enabled for the target) ----
+    public bool ShowCosts { get; init; }
+    public string Costs { get; init; } = "";
+    public string? Estimated { get; init; }
+    public string? Billed { get; init; }
+    public IReadOnlyList<ServiceCost> Services { get; init; } = [];
+    public string? CostNote { get; init; }
+    public string CostExplorerUrl => "https://us-east-1.console.aws.amazon.com/costmanagement/home#/cost-explorer";
 }
 
 public sealed class ClusterDetail
@@ -328,14 +338,22 @@ public static class DashboardTreeBuilder
             if (problemsOnly && kept.Count == 0)
                 continue;
 
+            var costs = target.CostEnabled || target.CostExplorerEnabled ? AddCosts(kept, session) : 0;
+            var nat = session.Costs.NatEstimate(target);
+            var actual = target.CostExplorerEnabled ? session.Costs.Get(target.Id)?.Actual : null;
+            var costText = string.Join(" · ", new[]
+            {
+                costs + (nat?.MonthlyUsd ?? 0) is var total and > 0 ? $"~{CostRules.Money(total)}/mo est." : null,
+                actual is { } a ? $"billed {CostRules.Money(a.MonthToDate)} this month" : null,
+            }.Where(s => s is not null));
             var node = new DashNode
             {
                 Key = $"{target.Id}",
                 Kind = NodeKind.Target,
                 Title = target.DisplayName,
-                Subtitle = $"{account ?? target.ProfileName} · {target.Region}{(target.Enabled ? "" : " · disabled")}",
+                Subtitle = $"{account ?? target.ProfileName} · {target.Region}{(target.Enabled ? "" : " · disabled")}{(costText.Length > 0 ? $" · {costText}" : "")}",
                 SearchText = $"{target.ProfileName} {target.ElevatedProfileName} {account}",
-                Payload = BuildTargetDetail(session, target, health, cred, account),
+                Payload = BuildTargetDetail(session, target, health, cred, account, costs, nat),
             };
             foreach (var c in kept)
                 node.Children.Add(c);
@@ -343,6 +361,35 @@ public static class DashboardTreeBuilder
             nodes.Add(node);
         }
         return nodes;
+    }
+
+    /// <summary>
+    /// Adds monthly cost to resource rows (right column) and group totals; returns the estimated total. Hidden
+    /// resources are not counted.
+    /// </summary>
+    private static double AddCosts(IEnumerable<DashNode> nodes, AppSession session)
+    {
+        double total = 0;
+        foreach (var node in nodes)
+        {
+            double own = 0;
+            ResourceCost? cost = null;
+            if (node.Payload is ResourceStatus { IsHidden: false } r && (cost = session.Costs.For(r)) is not null)
+            {
+                own = cost.Estimate?.MonthlyUsd ?? 0;
+                node.Right ??= cost.Short;
+            }
+            var below = AddCosts(node.Children, session);
+            if (below > 0 && node.Payload is not ResourceStatus)
+                node.Right = node.Right is { Length: > 0 } right ? $"{right} · ~{CostRules.Money(below)}/mo" : $"~{CostRules.Money(below)}/mo";
+            else if (below > 0 && own > 0 && node.Right == cost?.Short)
+                node.Right = $"{node.Right} · ~{CostRules.Money(own + below)} total"; // e.g. a primary database with its read replicas
+            else if (below > 0 && own == 0)
+                // e.g. an Aurora cluster: its instances carry the cost
+                node.Right = node.Right is { Length: > 0 } other && other != cost?.Short ? $"{other} · ~{CostRules.Money(below)}/mo" : $"~{CostRules.Money(below)}/mo";
+            total += own + below;
+        }
+        return total;
     }
 
     /// <summary>
@@ -882,7 +929,8 @@ public static class DashboardTreeBuilder
         return true;
     }
 
-    private static TargetDetail BuildTargetDetail(AppSession session, Target target, TargetHealth? health, ProfileStatus cred, string? account)
+    private static TargetDetail BuildTargetDetail(AppSession session, Target target, TargetHealth? health, ProfileStatus cred, string? account,
+        double estimated = 0, CostEstimate? nat = null)
     {
         string Job(JobKind kind)
         {
@@ -899,8 +947,22 @@ public static class DashboardTreeBuilder
 
         var metricCount = session.Health.MetricCount(target.Id);
         var elevated = target.ElevatedProfileName is { Length: > 0 } ep ? session.Monitor.GetStatus(ep) : null;
+        var costSnapshot = session.Costs.Get(target.Id);
+        var actual = target.CostExplorerEnabled ? costSnapshot?.Actual : null;
+        var pricesPending = target.CostEnabled ? session.Costs.MissingPrices(target, DateTime.UtcNow).Count : 0;
         return new TargetDetail
         {
+            ShowCosts = target.CostEnabled || target.CostExplorerEnabled,
+            Costs = Job(JobKind.Costs),
+            Estimated = !target.CostEnabled ? null
+                : $"~{CostRules.Money(estimated + (nat?.MonthlyUsd ?? 0))}/month on-demand list price for the resources on the dashboard"
+                  + (nat is not null ? $" (including {nat.Text} for NAT gateways)" : "")
+                  + ". Excludes EBS, data transfer, load balancer capacity units, backups and discounts (savings plans, reserved instances)."
+                  + (pricesPending > 0 ? $" {pricesPending} price(s) not read yet." : ""),
+            Billed = actual is null ? (target.CostExplorerEnabled ? "Not read yet." : null)
+                : $"{CostRules.Money(actual.MonthToDate)} this month so far{(actual.MonthToDateEstimated ? " (estimated)" : "")} · {CostRules.Money(actual.LastMonth)} last month · region {target.Region}, read {actual.FetchedUtc.ToLocalTime():g}",
+            Services = actual?.Services.Take(12).ToList() ?? [],
+            CostNote = string.Join(" ", new[] { actual?.ResourceNote, costSnapshot?.Error }.Where(s => s is not null)) is { Length: > 0 } n ? n : null,
             Target = target,
             Account = account,
             ReadOnlyProfile = target.ProfileName,

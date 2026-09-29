@@ -7,6 +7,8 @@ using Amazon.ECS;
 using Amazon.ElastiCache;
 using Amazon.ElasticBeanstalk;
 using Amazon.ElasticLoadBalancingV2;
+using Amazon.CostExplorer;
+using Amazon.Pricing;
 using Amazon.RDS;
 using Amazon.Runtime;
 using Amazon.SecretsManager;
@@ -32,6 +34,8 @@ public sealed class AwsClientSet : IDisposable
     private readonly Lazy<AmazonRDSClient> _rds;
     private readonly Lazy<AmazonElastiCacheClient> _elastiCache;
     private readonly Lazy<AmazonElasticLoadBalancingV2Client> _elb;
+    private readonly Lazy<AmazonPricingClient> _pricing;
+    private readonly Lazy<AmazonCostExplorerClient> _costExplorer;
 
     public AwsClientSet(ProfileCredentials creds, string region)
     {
@@ -52,6 +56,9 @@ public sealed class AwsClientSet : IDisposable
         _rds = new(() => new AmazonRDSClient(_credentials, Configure(new AmazonRDSConfig())));
         _elastiCache = new(() => new AmazonElastiCacheClient(_credentials, Configure(new AmazonElastiCacheConfig())));
         _elb = new(() => new AmazonElasticLoadBalancingV2Client(_credentials, Configure(new AmazonElasticLoadBalancingV2Config())));
+        // Price List and Cost Explorer are global services answered from us-east-1, whatever the target's region.
+        _pricing = new(() => new AmazonPricingClient(_credentials, Configure(new AmazonPricingConfig(), RegionEndpoint.USEast1)));
+        _costExplorer = new(() => new AmazonCostExplorerClient(_credentials, Configure(new AmazonCostExplorerConfig(), RegionEndpoint.USEast1)));
     }
 
     public string Fingerprint { get; }
@@ -66,10 +73,12 @@ public sealed class AwsClientSet : IDisposable
     public AmazonRDSClient Rds => _rds.Value;
     public AmazonElastiCacheClient ElastiCache => _elastiCache.Value;
     public AmazonElasticLoadBalancingV2Client Elb => _elb.Value;
+    public AmazonPricingClient Pricing => _pricing.Value;
+    public AmazonCostExplorerClient CostExplorer => _costExplorer.Value;
 
-    private T Configure<T>(T config) where T : ClientConfig
+    private T Configure<T>(T config, RegionEndpoint? region = null) where T : ClientConfig
     {
-        config.RegionEndpoint = _region;
+        config.RegionEndpoint = region ?? _region;
         config.RetryMode = RequestRetryMode.Standard;
         config.MaxErrorRetry = 3;
         config.Timeout = TimeSpan.FromSeconds(30);
@@ -90,6 +99,8 @@ public sealed class AwsClientSet : IDisposable
         if (_rds.IsValueCreated) _rds.Value.Dispose();
         if (_elastiCache.IsValueCreated) _elastiCache.Value.Dispose();
         if (_elb.IsValueCreated) _elb.Value.Dispose();
+        if (_pricing.IsValueCreated) _pricing.Value.Dispose();
+        if (_costExplorer.IsValueCreated) _costExplorer.Value.Dispose();
     }
 }
 

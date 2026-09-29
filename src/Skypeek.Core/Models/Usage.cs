@@ -1,5 +1,13 @@
 namespace Skypeek.Core.Models;
 
+/// <summary>One chart of the period switch: a node's CPU or memory over the chosen range.</summary>
+public sealed record HistorySeries(string Scope, string Metric, MetricEvaluation Evaluation, bool Estimated)
+{
+    public string Label => $"{Metric}{(Estimated ? " ≈" : "")}";
+    public string StatsText => Evaluation.Points.Count == 0 ? "no data"
+        : $"now {Evaluation.Current:0}% · avg {Evaluation.Average:0} · min {Evaluation.Points.Min(p => p.Value):0} · peak {Evaluation.Peak:0}";
+}
+
 public enum Provisioning
 {
     Unknown,

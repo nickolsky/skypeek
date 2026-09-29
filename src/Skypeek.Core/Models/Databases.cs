@@ -35,6 +35,13 @@ public sealed class RdsInstanceSnapshot
     public int? AllocatedStorageGb { get; init; }
     public int? MaxAllocatedStorageGb { get; init; }
     public string? StorageType { get; init; }
+    /// <summary>Provisioned IOPS and gp3 throughput (MiB/s); for gp3 the baseline is included in the storage price.</summary>
+    public int? Iops { get; init; }
+    public int? StorageThroughputMbps { get; init; }
+    /// <summary>Storage type of the Aurora or Multi-AZ DB cluster, e.g. "aurora-iopt1" for I/O-Optimized.</summary>
+    public string? ClusterStorageType { get; init; }
+    /// <summary>"open-source-rds-extended-support" (default: billed Extended Support after standard support ends) or "…-disabled".</summary>
+    public string? EngineLifecycleSupport { get; init; }
     public bool PubliclyAccessible { get; init; }
     public bool PerformanceInsights { get; init; }
     public DateTime? Created { get; init; }
@@ -62,6 +69,9 @@ public sealed class RdsInstanceSnapshot
     public List<ServiceEvent> NewEvents { get; init; } = [];
 
     [JsonIgnore] public bool IsAurora => Engine.StartsWith("aurora", StringComparison.OrdinalIgnoreCase);
+    /// <summary>A member of a Multi-AZ DB cluster (one writer, two readable standbys; not Aurora).</summary>
+    [JsonIgnore] public bool IsMultiAzClusterMember => ClusterIdentifier is not null && !IsAurora;
+    [JsonIgnore] public bool IsIoOptimized => IsAurora && (StorageType == "aurora-iopt1" || ClusterStorageType == "aurora-iopt1");
     [JsonIgnore] public bool IsReplica => ReplicaSource is not null || IsClusterWriter == false;
     [JsonIgnore] public string Endpoint => Address is null ? "(no endpoint yet)" : Port is { } p ? $"{Address}:{p}" : Address;
     [JsonIgnore] public string EngineText => $"{Engine} {EngineVersion}".Trim();

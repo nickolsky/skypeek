@@ -1,0 +1,75 @@
+<UserControl x:Class="Skypeek.App.Views.VpcMapView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <UserControl.Resources>
+        <!-- One box; the stripe colour says what kind of subnet or connection it is. -->
+        <DataTemplate x:Key="BoxTemplate">
+            <Border x:Name="Box" CornerRadius="4" BorderThickness="1" BorderBrush="{StaticResource PanelBorder}" Background="#1FFFFFFF"
+                    Margin="0,0,0,6" Padding="0" Cursor="Hand" MouseLeftButtonUp="OnBoxClick" Tag="{Binding}">
+                <DockPanel>
+                    <Border x:Name="Stripe" DockPanel.Dock="Left" Width="4" CornerRadius="4,0,0,4" Background="#FF8F8F8F" />
+                    <StackPanel Margin="8,4,6,5">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="⚠ " Foreground="#FFFFB86B" Visibility="{Binding HasWarning, Converter={StaticResource BoolToVisibility}}" ToolTip="{Binding Warning}" />
+                            <TextBlock Text="{Binding Title}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextStrong}" TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                        <TextBlock Text="{Binding Subtitle}" Style="{StaticResource Caption}" FontSize="10.5" TextTrimming="CharacterEllipsis" ToolTip="{Binding Subtitle}" />
+                    </StackPanel>
+                </DockPanel>
+            </Border>
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding Kind}" Value="public"><Setter TargetName="Stripe" Property="Background" Value="#FF6FD08C" /></DataTrigger>
+                <DataTrigger Binding="{Binding Kind}" Value="nat"><Setter TargetName="Stripe" Property="Background" Value="#FF60CDFF" /></DataTrigger>
+                <DataTrigger Binding="{Binding Kind}" Value="igw"><Setter TargetName="Stripe" Property="Background" Value="#FF6FD08C" /></DataTrigger>
+                <DataTrigger Binding="{Binding Kind}" Value="eigw"><Setter TargetName="Stripe" Property="Background" Value="#FF6FD08C" /></DataTrigger>
+                <DataTrigger Binding="{Binding Kind}" Value="other"><Setter TargetName="Stripe" Property="Background" Value="#FFB39DDB" /></DataTrigger>
+                <DataTrigger Binding="{Binding Kind}" Value="tgw"><Setter TargetName="Stripe" Property="Background" Value="#FFB39DDB" /></DataTrigger>
+                <DataTrigger Binding="{Binding Kind}" Value="pcx"><Setter TargetName="Stripe" Property="Background" Value="#FFB39DDB" /></DataTrigger>
+                <DataTrigger Binding="{Binding Kind}" Value="vgw"><Setter TargetName="Stripe" Property="Background" Value="#FFB39DDB" /></DataTrigger>
+                <DataTrigger Binding="{Binding Kind}" Value="vpce"><Setter TargetName="Stripe" Property="Background" Value="#FFFFD479" /></DataTrigger>
+                <DataTrigger Binding="{Binding Kind}" Value="table"><Setter TargetName="Stripe" Property="Background" Value="#FFC4C4C4" /></DataTrigger>
+                <DataTrigger Binding="{Binding Kind}" Value="blackhole"><Setter TargetName="Stripe" Property="Background" Value="#FFFF7B7F" /></DataTrigger>
+                <DataTrigger Binding="{Binding IsHighlighted}" Value="True">
+                    <Setter TargetName="Box" Property="BorderBrush" Value="#FF60CDFF" />
+                    <Setter TargetName="Box" Property="Background" Value="#3360CDFF" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsDimmed}" Value="True">
+                    <Setter TargetName="Box" Property="Opacity" Value="0.35" />
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <StackPanel>
+        <Grid x:Name="Board">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="28" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="28" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <TextBlock x:Name="SubnetHeader" Text="Subnets" Style="{StaticResource Caption}" FontWeight="SemiBold" Margin="0,0,0,4" />
+            <TextBlock Grid.Column="2" Text="Route tables" Style="{StaticResource Caption}" FontWeight="SemiBold" Margin="0,0,0,4" />
+            <TextBlock Grid.Column="4" Text="Network connections" Style="{StaticResource Caption}" FontWeight="SemiBold" Margin="0,0,0,4" />
+            <!-- Lines behind the boxes. -->
+            <Canvas x:Name="Lines" Grid.Row="1" Grid.ColumnSpan="5" IsHitTestVisible="False" />
+            <ItemsControl x:Name="SubnetList" Grid.Row="1" ItemsSource="{Binding Subnets}" ItemTemplate="{StaticResource BoxTemplate}" />
+            <ItemsControl x:Name="TableList" Grid.Row="1" Grid.Column="2" ItemsSource="{Binding RouteTables}" ItemTemplate="{StaticResource BoxTemplate}" />
+            <ItemsControl x:Name="ConnectionList" Grid.Row="1" Grid.Column="4" ItemsSource="{Binding Connections}" ItemTemplate="{StaticResource BoxTemplate}" />
+        </Grid>
+        <Border Style="{StaticResource Panel}" Margin="0,6,0,0" Padding="10,6"
+                Visibility="{Binding Selected, Converter={StaticResource NullToCollapsed}}">
+            <StackPanel>
+                <TextBlock Text="{Binding Selected.Detail}" Style="{StaticResource Body}" FontFamily="{StaticResource MonoFont}" TextWrapping="Wrap" />
+                <TextBlock Text="{Binding Selected.Warning}" Foreground="#FFFFB86B" TextWrapping="Wrap" Margin="0,4,0,0"
+                           Visibility="{Binding Selected.Warning, Converter={StaticResource NullToCollapsed}}" />
+            </StackPanel>
+        </Border>
+        <TextBlock Text="{Binding Legend}" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,6,0,0" />
+    </StackPanel>
+</UserControl>

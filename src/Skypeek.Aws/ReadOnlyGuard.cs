@@ -9,6 +9,8 @@ using ElastiCache = Amazon.ElastiCache.Model;
 using Rds = Amazon.RDS.Model;
 using Eb = Amazon.ElasticBeanstalk.Model;
 using Elb = Amazon.ElasticLoadBalancingV2.Model;
+using Ce = Amazon.CostExplorer.Model;
+using Pricing = Amazon.Pricing.Model;
 using Secrets = Amazon.SecretsManager.Model;
 using Ssm = Amazon.SimpleSystemsManagement.Model;
 using Sso = Amazon.SSO.Model;
@@ -55,6 +57,16 @@ public static class ReadOnlyGuard
         typeof(Ec2.DescribeSecurityGroupsRequest),
         typeof(Ec2.DescribeSecurityGroupRulesRequest),
         typeof(Ec2.DescribeAddressesRequest),
+        typeof(Ec2.DescribeRouteTablesRequest),
+        typeof(Ec2.DescribeInternetGatewaysRequest),
+        typeof(Ec2.DescribeEgressOnlyInternetGatewaysRequest),
+        typeof(Ec2.DescribeNatGatewaysRequest),
+        typeof(Ec2.DescribeVpcEndpointsRequest),
+        typeof(Ec2.DescribeVpcPeeringConnectionsRequest),
+
+        typeof(Pricing.GetProductsRequest),                  // public list prices
+        typeof(Ce.GetCostAndUsageRequest),                   // billed cost ($0.01 per request)
+        typeof(Ce.GetCostAndUsageWithResourcesRequest),      // billed cost per resource ($0.01 per request)
 
         typeof(Elb.DescribeLoadBalancersRequest),
         typeof(Elb.DescribeTargetGroupsRequest),
@@ -81,6 +93,7 @@ public static class ReadOnlyGuard
         typeof(Rds.DescribeDBClustersRequest),
         typeof(Rds.DescribeEventsRequest),
         typeof(Rds.DescribeDBParametersRequest),
+        typeof(Rds.DescribeDBMajorEngineVersionsRequest), // standard / Extended Support dates, for cost estimates
         typeof(Rds.DescribeDBLogFilesRequest),
         typeof(Rds.DownloadDBLogFilePortionRequest), // reads a log file; nothing is changed
 
@@ -214,6 +227,8 @@ public static class ReadOnlyGuard
         "Amazon.RDS.Model" => "rds",
         "Amazon.ElastiCache.Model" => "elasticache",
         "Amazon.ElasticLoadBalancingV2.Model" => "elasticloadbalancing",
+        "Amazon.Pricing.Model" => "pricing",
+        "Amazon.CostExplorer.Model" => "ce",
         { } ns => ns,
         null => "unknown",
     };

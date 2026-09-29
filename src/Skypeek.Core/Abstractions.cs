@@ -47,6 +47,13 @@ public interface IAwsGateway
     /// <summary>Re-reads some security groups and their rules (after an edit).</summary>
     Task<IReadOnlyList<SecurityGroupInfo>> GetSecurityGroupsAsync(Target target, IReadOnlyList<string> groupIds, CancellationToken ct);
 
+    /// <summary>On-demand prices from the AWS Price List API (a free, public-price read).</summary>
+    Task<IReadOnlyList<PriceItem>> GetPricesAsync(Target target, PriceQuery query, CancellationToken ct);
+    /// <summary>Billed cost of the target's region from Cost Explorer: by service this and last month, and per resource for 14 days when available.</summary>
+    Task<ActualCosts> GetActualCostsAsync(Target target, CancellationToken ct);
+    /// <summary>Major versions of an RDS engine that have billed Extended Support, with the date it starts.</summary>
+    Task<IReadOnlyDictionary<string, DateTime>> GetRdsExtendedSupportStartsAsync(Target target, string engine, CancellationToken ct);
+
     /// <summary>The instance's log files (newest first) plus log groups it exports to CloudWatch Logs.</summary>
     Task<IReadOnlyList<LogSource>> GetRdsLogSourcesAsync(Target target, RdsInstanceSnapshot db, CancellationToken ct);
     /// <summary>
@@ -165,6 +172,13 @@ public interface INetworkStore
 {
     void Save(long targetId, NetworkSnapshot snapshot);
     IReadOnlyList<NetworkSnapshot> LoadAll();
+}
+
+/// <summary>Cached prices and billed costs, one snapshot per target (deleted with the target).</summary>
+public interface ICostStore
+{
+    void Save(long targetId, CostSnapshot snapshot);
+    IReadOnlyList<CostSnapshot> LoadAll();
 }
 
 public interface IRequestLogStore

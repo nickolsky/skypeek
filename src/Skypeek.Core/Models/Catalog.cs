@@ -41,6 +41,8 @@ public enum JobKind
     Metrics,
     /// <summary>Network tab inventory (VPCs, subnets, interfaces, security groups).</summary>
     Network,
+    /// <summary>List prices for estimates and billed costs from Cost Explorer.</summary>
+    Costs,
 }
 
 public sealed record SyncRun(long TargetId, string Feature, DateTime StartedAt, DateTime FinishedAt, bool Success, int ItemCount, string? Error);

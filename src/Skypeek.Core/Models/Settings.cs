@@ -112,6 +112,10 @@ public sealed class Target
     public bool ElbEnabled { get; set; } = true;
     /// <summary>Network tab: VPCs, subnets, interfaces and security groups (downloaded and cached).</summary>
     public bool NetworkEnabled { get; set; } = true;
+    /// <summary>Monthly cost estimates from the AWS Price List (free API; prices cached for a week).</summary>
+    public bool CostEnabled { get; set; }
+    /// <summary>Billed cost from Cost Explorer (each request costs $0.01; refreshed at most twice a day).</summary>
+    public bool CostExplorerEnabled { get; set; }
 
     /// <summary>Any health/metrics feature on.</summary>
     [JsonIgnore] public bool HealthEnabled => EbEnabled || EcsEnabled || RdsEnabled || CacheEnabled || Ec2Enabled || ElbEnabled;

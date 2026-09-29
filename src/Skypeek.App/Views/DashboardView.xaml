@@ -89,8 +89,41 @@
                 <StackPanel Orientation="Horizontal"><TextBlock Text="Network" Style="{StaticResource Label}" /><TextBlock Text="{Binding Network}" Style="{StaticResource Value}" MaxWidth="520" /></StackPanel>
                 <StackPanel Orientation="Horizontal"><TextBlock Text="Health" Style="{StaticResource Label}" /><TextBlock Text="{Binding Health}" Style="{StaticResource Value}" MaxWidth="520" /></StackPanel>
                 <StackPanel Orientation="Horizontal"><TextBlock Text="Metrics &amp; alarms" Style="{StaticResource Label}" /><TextBlock Text="{Binding Metrics}" Style="{StaticResource Value}" MaxWidth="520" /></StackPanel>
-                <StackPanel Orientation="Horizontal"><TextBlock Text="Cost estimate" Style="{StaticResource Label}" /><TextBlock Text="{Binding Cost, TargetNullValue='—'}" Style="{StaticResource Value}" /></StackPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Text="Metrics cost" Style="{StaticResource Label}" /><TextBlock Text="{Binding Cost, TargetNullValue='—'}" Style="{StaticResource Value}" /></StackPanel>
                 <TextBlock Text="{Binding Errors}" Foreground="#FFFF7B7F" TextWrapping="Wrap" Margin="0,8,0,0" Visibility="{Binding Errors, Converter={StaticResource NullToCollapsed}}" />
+
+                <StackPanel Visibility="{Binding ShowCosts, Converter={StaticResource BoolToVisibility}}">
+                    <DockPanel Margin="0,12,0,2">
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                            <ui:Button Content="Refresh costs" Icon="{ui:SymbolIcon ArrowClockwise24}" Padding="8,2" Margin="0,0,6,0" Click="OnRefreshCosts" Tag="{Binding Target.Id}"
+                                       ToolTip="Reads missing prices, and billed costs from Cost Explorer if enabled ($0.01 per Cost Explorer request)" />
+                            <ui:Button Content="Cost Explorer" Icon="{ui:SymbolIcon Open24}" Padding="8,2" Click="OnOpenCostExplorer" />
+                        </StackPanel>
+                        <TextBlock Text="Monthly cost" Style="{StaticResource SectionHeader}" Margin="0" VerticalAlignment="Center" />
+                    </DockPanel>
+                    <StackPanel Orientation="Horizontal"><TextBlock Text="Updates" Style="{StaticResource Label}" /><TextBlock Text="{Binding Costs}" Style="{StaticResource Value}" MaxWidth="520" /></StackPanel>
+                    <StackPanel Orientation="Horizontal" Visibility="{Binding Estimated, Converter={StaticResource NullToCollapsed}}">
+                        <TextBlock Text="Estimated" Style="{StaticResource Label}" /><TextBlock Text="{Binding Estimated}" Style="{StaticResource Value}" MaxWidth="520" /></StackPanel>
+                    <StackPanel Orientation="Horizontal" Visibility="{Binding Billed, Converter={StaticResource NullToCollapsed}}">
+                        <TextBlock Text="Billed" Style="{StaticResource Label}" /><TextBlock Text="{Binding Billed}" Style="{StaticResource Value}" MaxWidth="520" /></StackPanel>
+                    <ItemsControl ItemsSource="{Binding Services}" Margin="110,4,0,0">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,1">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="260" />
+                                        <ColumnDefinition Width="90" />
+                                        <ColumnDefinition Width="90" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{Binding Service}" Style="{StaticResource Body}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Service}" />
+                                    <TextBlock Grid.Column="1" Text="{Binding MonthToDate, StringFormat=${0:N2}}" Style="{StaticResource Body}" TextAlignment="Right" ToolTip="This month so far" />
+                                    <TextBlock Grid.Column="2" Text="{Binding LastMonth, StringFormat=${0:N2}}" Style="{StaticResource Caption}" TextAlignment="Right" ToolTip="Last month" />
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock Text="{Binding CostNote}" Style="{StaticResource Caption}" TextWrapping="Wrap" Margin="0,4,0,0" Visibility="{Binding CostNote, Converter={StaticResource NullToCollapsed}}" />
+                </StackPanel>
             </StackPanel>
         </DataTemplate>
 
@@ -240,7 +273,7 @@
                                     <StackPanel Orientation="Horizontal" Margin="17,4,0,0">
                                         <TextBlock Text="CPU" Style="{StaticResource Caption}" Width="28" VerticalAlignment="Center" />
                                         <views:Sparkline Evaluation="{Binding Metric.Cpu}" Margin="0,0,6,0" />
-                                        <TextBlock Text="{Binding Metric.Cpu.Display, FallbackValue=n/a}" Width="170" VerticalAlignment="Center" Style="{StaticResource Body}" />
+                                        <TextBlock Text="{Binding Metric.Cpu.Display, FallbackValue=n/a}" Width="240" VerticalAlignment="Center" Style="{StaticResource Body}" />
                                         <TextBlock Text="Mem" Style="{StaticResource Caption}" Width="30" VerticalAlignment="Center" />
                                         <views:Sparkline Evaluation="{Binding Metric.Memory}" Margin="0,0,6,0" />
                                         <TextBlock Text="{Binding Metric.Memory.Display, FallbackValue=n/a (no CW agent)}" VerticalAlignment="Center" Style="{StaticResource Body}" />
@@ -251,6 +284,8 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
 
+                <views:HistoryPanel Resource="{Binding}" />
+                <views:CostLine Resource="{Binding}" />
                 <views:UsagePanel Resource="{Binding}" />
                 <TextBlock Text="Alarms" Style="{StaticResource SectionHeader}" Visibility="{Binding Alarms.Count, Converter={StaticResource CountToVisibility}}" />
                 <ContentPresenter Content="{Binding}" ContentTemplate="{StaticResource AlarmRows}" />
@@ -396,6 +431,8 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
 
+                <views:HistoryPanel Resource="{Binding}" />
+                <views:CostLine Resource="{Binding}" />
                 <views:UsagePanel Resource="{Binding}" />
                 <TextBlock Text="Alarms" Style="{StaticResource SectionHeader}" Visibility="{Binding Alarms.Count, Converter={StaticResource CountToVisibility}}" />
                 <ContentPresenter Content="{Binding}" ContentTemplate="{StaticResource AlarmRows}" />
@@ -524,6 +561,8 @@
                            Visibility="{Binding StorageAutoscaling, Converter={StaticResource NullToCollapsed}}" />
                 <StackPanel Orientation="Horizontal" Margin="0,4,0,0"><TextBlock Text="Memory" Style="{StaticResource Label}" /><TextBlock Text="{Binding FreeableMemoryText}" Style="{StaticResource Value}" /></StackPanel>
 
+                <views:HistoryPanel Resource="{Binding}" />
+                <views:CostLine Resource="{Binding}" />
                 <views:UsagePanel Resource="{Binding}" />
                 <TextBlock Text="Alarms" Style="{StaticResource SectionHeader}" Visibility="{Binding Alarms.Count, Converter={StaticResource CountToVisibility}}" />
                 <ContentPresenter Content="{Binding}" ContentTemplate="{StaticResource AlarmRows}" />
@@ -707,7 +746,7 @@
                                     <StackPanel Orientation="Horizontal" Margin="17,4,0,0">
                                         <TextBlock Text="CPU" Style="{StaticResource Caption}" Width="28" VerticalAlignment="Center" />
                                         <views:Sparkline Evaluation="{Binding Metric.Cpu}" Margin="0,0,6,0" />
-                                        <TextBlock Text="{Binding Metric.Cpu.Display, FallbackValue=n/a}" Width="170" VerticalAlignment="Center" Style="{StaticResource Body}" />
+                                        <TextBlock Text="{Binding Metric.Cpu.Display, FallbackValue=n/a}" Width="240" VerticalAlignment="Center" Style="{StaticResource Body}" />
                                         <TextBlock Text="Mem" Style="{StaticResource Caption}" Width="30" VerticalAlignment="Center" />
                                         <views:Sparkline Evaluation="{Binding Metric.Memory}" Margin="0,0,6,0" />
                                         <TextBlock Text="{Binding Metric.Memory.Display, FallbackValue=n/a}" VerticalAlignment="Center" Style="{StaticResource Body}" />
@@ -718,6 +757,8 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
 
+                <views:HistoryPanel Resource="{Binding}" />
+                <views:CostLine Resource="{Binding}" />
                 <views:UsagePanel Resource="{Binding}" />
                 <TextBlock Text="Alarms" Style="{StaticResource SectionHeader}" Visibility="{Binding Alarms.Count, Converter={StaticResource CountToVisibility}}" />
                 <ContentPresenter Content="{Binding}" ContentTemplate="{StaticResource AlarmRows}" />
@@ -977,6 +1018,8 @@
                 <StackPanel Orientation="Horizontal" Margin="0,4,0,0"><TextBlock Text="Memory" Style="{StaticResource Label}" VerticalAlignment="Center" />
                     <views:Sparkline Evaluation="{Binding Memory}" Margin="0,0,8,0" /><TextBlock Text="{Binding Memory.Display, FallbackValue=n/a (no CloudWatch agent)}" Style="{StaticResource Value}" VerticalAlignment="Center" /></StackPanel>
 
+                <views:HistoryPanel Resource="{Binding}" />
+                <views:CostLine Resource="{Binding}" />
                 <views:UsagePanel Resource="{Binding}" />
                 <TextBlock Text="Alarms" Style="{StaticResource SectionHeader}" Visibility="{Binding Alarms.Count, Converter={StaticResource CountToVisibility}}" />
                 <ContentPresenter Content="{Binding}" ContentTemplate="{StaticResource AlarmRows}" />
@@ -1086,6 +1129,7 @@
                 </ItemsControl>
                 <TextBlock Text="Select a target group in the tree for its targets." Style="{StaticResource Caption}" />
 
+                <views:CostLine Resource="{Binding}" />
                 <views:ListenersPanel Resource="{Binding}" />
                 <TextBlock Text="Alarms" Style="{StaticResource SectionHeader}" Visibility="{Binding Alarms.Count, Converter={StaticResource CountToVisibility}}" />
                 <ContentPresenter Content="{Binding}" ContentTemplate="{StaticResource AlarmRows}" />
@@ -1259,7 +1303,7 @@
                                     </Border>
                                 </StackPanel>
                                 <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="10,0,0,0" VerticalAlignment="Center">
-                                    <TextBlock Text="{Binding Right}" Style="{StaticResource Caption}" VerticalAlignment="Center" />
+                                    <TextBlock Text="{Binding Right}" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,10,0" />
                                     <ItemsControl ItemsSource="{Binding Gauges}" Focusable="False">
                                         <ItemsControl.ItemsPanel>
                                             <ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate>

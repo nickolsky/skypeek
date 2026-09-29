@@ -14,6 +14,12 @@ public sealed class NetworkSnapshot
     public List<NetworkInterfaceInfo> Interfaces { get; set; } = [];
     public List<SecurityGroupInfo> SecurityGroups { get; set; } = [];
     public List<ElasticIpInfo> ElasticIps { get; set; } = [];
+    public List<RouteTableInfo> RouteTables { get; set; } = [];
+    /// <summary>Internet gateways and egress-only internet gateways.</summary>
+    public List<InternetGatewayInfo> InternetGateways { get; set; } = [];
+    public List<NatGatewayInfo> NatGateways { get; set; } = [];
+    public List<VpcEndpointInfo> Endpoints { get; set; } = [];
+    public List<PeeringInfo> Peerings { get; set; } = [];
     /// <summary>Parts that could not be read (the rest is still shown).</summary>
     public string? Error { get; set; }
 }
@@ -256,6 +262,123 @@ public static class NetworkRules
                 return false;
         }
         return true;
+    }
+
+    /// <summary>The route table a subnet uses: its explicit association, else the VPC's main table.</summary>
+    public static (RouteTableInfo? Table, bool Explicit) RouteTableOf(NetworkSnapshot s, SubnetInfo subnet) =>
+        s.RouteTables.FirstOrDefault(t => t.SubnetIds.Contains(subnet.Id)) is { } table
+            ? (table, true)
+            : (s.RouteTables.FirstOrDefault(t => t.VpcId == subnet.VpcId && t.IsMain), false);
+
+    /// <summary>A short label for a route target, e.g. "NAT gateway nat-01 (54.1.2.3)".</summary>
+    public static string TargetLabel(NetworkSnapshot s, string? target)
+    {
+        if (target is null)
+            return "deleted target";
+        if (target == "local")
+            return "local (inside the VPC)";
+        if (target.StartsWith("igw-", StringComparison.Ordinal))
+            return $"internet gateway {target}";
+        if (target.StartsWith("eigw-", StringComparison.Ordinal))
+            return $"egress-only internet gateway {target}";
+        if (target.StartsWith("nat-", StringComparison.Ordinal))
+            return s.NatGateways.FirstOrDefault(n => n.Id == target) is { } nat
+                ? $"{(nat.IsPublic ? "NAT gateway" : "private NAT gateway")} {target} ({nat.PublicIpText})"
+                : $"NAT gateway {target}";
+        if (target.StartsWith("tgw-", StringComparison.Ordinal))
+            return $"transit gateway {target}";
+        if (target.StartsWith("pcx-", StringComparison.Ordinal))
+            return $"peering {target}";
+        if (target.StartsWith("vgw-", StringComparison.Ordinal))
+            return $"VPN gateway {target}";
+        if (target.StartsWith("vpce-", StringComparison.Ordinal))
+            return s.Endpoints.FirstOrDefault(e => e.Id == target) is { } ep ? $"VPC endpoint {target} ({ep.ShortService})" : $"VPC endpoint {target}";
+        if (target.StartsWith("i-", StringComparison.Ordinal))
+            return $"instance {target} (NAT instance or appliance)";
+        if (target.StartsWith("eni-", StringComparison.Ordinal))
+            return s.Interfaces.FirstOrDefault(i => i.Id == target) is { } eni ? $"network interface {target} ({eni.Owner})" : $"network interface {target}";
+        return target;
+    }
+
+    public static void SubnetRoutingOf(NetworkSnapshot s, string subnetId, out SubnetRouting routing) =>
+        routing = Routing(s, s.Subnets.First(x => x.Id == subnetId));
+
+    /// <summary>How a subnet reaches the internet, from the default routes of its route table.</summary>
+    public static SubnetRouting Routing(NetworkSnapshot s, SubnetInfo subnet)
+    {
+        var (table, isExplicit) = RouteTableOf(s, subnet);
+        var routes = table?.Routes ?? [];
+        var v4 = routes.FirstOrDefault(r => r.IsDefaultIpv4);
+        var v6 = routes.FirstOrDefault(r => r.IsDefaultIpv6);
+        string? warning = null;
+        string? note = null;
+
+        InternetAccess access;
+        string summary;
+        if (table is null)
+        {
+            access = InternetAccess.Isolated;
+            summary = "No route table found";
+        }
+        else if (v4 is null)
+        {
+            access = InternetAccess.Isolated;
+            summary = s.Endpoints.Any(e => e.RouteTableIds.Contains(table.Id) || e.SubnetIds.Contains(subnet.Id))
+                ? "No internet route (isolated); reaches AWS services through VPC endpoints"
+                : "No internet route (isolated)";
+        }
+        else if (v4.IsBlackhole || v4.Target is null)
+        {
+            access = InternetAccess.Blackhole;
+            summary = $"Default route is a blackhole ({v4.Target ?? "target deleted"}): internet traffic is dropped";
+        }
+        else if (v4.Target.StartsWith("igw-", StringComparison.Ordinal))
+        {
+            access = InternetAccess.Public;
+            summary = $"Public: internet gateway {v4.Target}";
+            if (!subnet.MapPublicIpOnLaunch)
+                note = "Does not assign public IPs automatically: only resources given a public or Elastic IP (e.g. load balancers, NAT gateways) use the internet gateway.";
+        }
+        else if (v4.Target.StartsWith("nat-", StringComparison.Ordinal))
+        {
+            access = InternetAccess.Nat;
+            var nat = s.NatGateways.FirstOrDefault(n => n.Id == v4.Target);
+            summary = nat is null ? $"Private: outbound through NAT gateway {v4.Target}"
+                : nat.IsPublic ? $"Private: outbound through NAT gateway {nat.Id}, seen on the internet as {nat.PublicIpText}"
+                : $"Private: through private NAT gateway {nat.Id} (no internet; other networks only)";
+            if (nat is { State: not "available" })
+                warning = $"NAT gateway {nat.Id} is {nat.State}{(nat.FailureMessage is { } f ? $": {f}" : "")}.";
+            else if (nat is { IsPublic: true, SubnetId: { } natSubnet } && s.Subnets.FirstOrDefault(x => x.Id == natSubnet) is { } home
+                     && Routing(s, home, depth: 1).Access != InternetAccess.Public)
+                warning = $"NAT gateway {nat.Id} sits in {home.Title}, which has no route to an internet gateway, so it cannot reach the internet.";
+        }
+        else if (v4.Target.StartsWith("i-", StringComparison.Ordinal) || v4.Target.StartsWith("eni-", StringComparison.Ordinal))
+        {
+            access = InternetAccess.Nat;
+            summary = $"Private: outbound through {TargetLabel(s, v4.Target)}";
+        }
+        else
+        {
+            access = InternetAccess.Other;
+            summary = $"Default route to {TargetLabel(s, v4.Target)}: internet access depends on that network";
+        }
+
+        string? ipv6 = v6 is null ? null
+            : v6.Target?.StartsWith("eigw-", StringComparison.Ordinal) == true ? $"IPv6: outbound only through {v6.Target}"
+            : v6.Target?.StartsWith("igw-", StringComparison.Ordinal) == true ? $"IPv6: public through {v6.Target}"
+            : $"IPv6: default route to {TargetLabel(s, v6.Target)}";
+        return new SubnetRouting(subnet, table, isExplicit, access, v4?.Target, summary, ipv6, warning, note);
+    }
+
+    private static SubnetRouting Routing(NetworkSnapshot s, SubnetInfo subnet, int depth) =>
+        depth > 0 ? RoutingNoWarnings(s, subnet) : Routing(s, subnet);
+
+    private static SubnetRouting RoutingNoWarnings(NetworkSnapshot s, SubnetInfo subnet)
+    {
+        var (table, isExplicit) = RouteTableOf(s, subnet);
+        var v4 = table?.Routes.FirstOrDefault(r => r.IsDefaultIpv4);
+        var access = v4?.Target?.StartsWith("igw-", StringComparison.Ordinal) == true && !v4.IsBlackhole ? InternetAccess.Public : InternetAccess.Other;
+        return new SubnetRouting(subnet, table, isExplicit, access, v4?.Target, "", null, null);
     }
 
     public static string InterfaceOwner(NetworkInterfaceInfo eni)

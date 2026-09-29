@@ -58,6 +58,7 @@ public partial class DashboardView
         session.Monitor.StatusChanged += Schedule;
         session.Scheduler.JobCompleted += OnJobCompleted;
         session.Settings.Changed += Schedule;
+        session.Costs.Changed += Schedule;
         Rebuild();
     }
 
@@ -67,6 +68,7 @@ public partial class DashboardView
         _session.Monitor.StatusChanged -= Schedule;
         _session.Scheduler.JobCompleted -= OnJobCompleted;
         _session.Settings.Changed -= Schedule;
+        _session.Costs.Changed -= Schedule;
     }
 
     public void ShowProblems()
@@ -278,6 +280,30 @@ public partial class DashboardView
     private void OnRefreshHealth(object sender, RoutedEventArgs e) => _session.Scheduler.RunNow(kind: JobKind.Health);
     private void OnRefreshMetrics(object sender, RoutedEventArgs e) => _session.Scheduler.RunNow(kind: JobKind.Metrics);
     private void OnRefreshCatalogs(object sender, RoutedEventArgs e) => _session.Scheduler.RunNow(kind: JobKind.Catalog);
+
+    private async void OnRefreshCosts(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: long id } || _session.Settings.FindTarget(id) is not { } target)
+            return;
+        ActionStatus.Foreground = (System.Windows.Media.Brush)FindResource("TextNormal");
+        ActionStatus.Text = $"Reading costs for {target.DisplayName}…";
+        try
+        {
+            var count = await _session.Costs.SyncAsync(target, forceActual: true, CancellationToken.None);
+            ActionStatus.Text = $"Costs for {target.DisplayName} updated ({count} request(s)).";
+        }
+        catch (Exception ex)
+        {
+            ActionStatus.Foreground = LevelToBrushConverter.Critical;
+            ActionStatus.Text = $"Reading costs failed: {(ex is Amazon.Runtime.AmazonServiceException a ? $"{a.ErrorCode}: {a.Message}" : ex.Message)}";
+        }
+    }
+
+    private void OnOpenCostExplorer(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is TargetDetail d)
+            OpenUrl(d.CostExplorerUrl);
+    }
 
     private void OnRefreshTarget(object sender, RoutedEventArgs e)
     {

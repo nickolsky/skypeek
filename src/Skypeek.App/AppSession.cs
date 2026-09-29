@@ -28,6 +28,7 @@ public sealed class AppSession : IDisposable
         Catalog = new CatalogService(Gateway, Repository, Settings, Monitor);
         Health = new HealthService(Gateway, Repository, Settings, notifier);
         Network = new NetworkService(Gateway, Repository, Settings);
+        Costs = new CostService(Gateway, Repository, Settings, Health, Network);
         Scheduler = new TargetScheduler(Settings, Monitor, Repository, log, ExecuteJob);
 
         Monitor.ProfileHalted += p => notifier.Notify("AWS credentials rejected",
@@ -48,6 +49,7 @@ public sealed class AppSession : IDisposable
     public CatalogService Catalog { get; }
     public HealthService Health { get; }
     public NetworkService Network { get; }
+    public CostService Costs { get; }
     public TargetScheduler Scheduler { get; }
 
     public static async Task<AppSession> StartAsync(Vault vault, RequestLogService log, INotifier notifier, IElevationApprover approver)
@@ -75,17 +77,33 @@ public sealed class AppSession : IDisposable
         Settings.DeleteTarget(id);
         Health.Forget(id);
         Network.Forget(id);
+        Costs.Forget(id);
         Catalog.ReloadIndex();
     }
 
     private Task<int> ExecuteJob(Target target, JobKind kind, CancellationToken ct) => kind switch
     {
         JobKind.Catalog => Catalog.SyncAsync(target, ct),
-        JobKind.Health => Health.PollHealthAsync(target, ct),
+        JobKind.Health => PollHealthThenPricesAsync(target, ct),
+        JobKind.Costs => Costs.SyncAsync(target, forceActual: false, ct),
         JobKind.Metrics => Health.PollMetricsAsync(target, ct),
         JobKind.Network => Network.SyncAsync(target, ct),
         _ => Task.FromResult(0),
     };
+
+    /// <summary>A new instance type (or first poll) needs prices: fetch them right away instead of the next day.</summary>
+    private async Task<int> PollHealthThenPricesAsync(Target target, CancellationToken ct)
+    {
+        try
+        {
+            return await Health.PollHealthAsync(target, ct);
+        }
+        finally
+        {
+            if (Costs.NeedsSync(target, DateTime.UtcNow))
+                Scheduler.RunNow(target.Id, JobKind.Costs);
+        }
+    }
 
     private void PurgeLog()
     {

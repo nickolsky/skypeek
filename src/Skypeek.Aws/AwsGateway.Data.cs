@@ -115,7 +115,11 @@ public sealed partial class AwsGateway
                     SecondaryAvailabilityZone = db.SecondaryAvailabilityZone,
                     AllocatedStorageGb = db.AllocatedStorage,
                     MaxAllocatedStorageGb = db.MaxAllocatedStorage,
-                    StorageType = db.StorageType,
+                    StorageType = db.StorageType ?? cluster?.StorageType,
+                    Iops = db.Iops ?? cluster?.Iops,
+                    StorageThroughputMbps = db.StorageThroughput ?? cluster?.StorageThroughput,
+                    ClusterStorageType = cluster?.StorageType,
+                    EngineLifecycleSupport = db.EngineLifecycleSupport ?? cluster?.EngineLifecycleSupport,
                     PubliclyAccessible = db.PubliclyAccessible == true,
                     PerformanceInsights = db.PerformanceInsightsEnabled == true,
                     Created = db.InstanceCreateTime,
@@ -242,6 +246,24 @@ public sealed partial class AwsGateway
         _maxConnections[key] = (DateTime.UtcNow, value);
         return value;
     }
+
+    public Task<IReadOnlyDictionary<string, DateTime>> GetRdsExtendedSupportStartsAsync(Target target, string engine, CancellationToken ct) =>
+        Call<IReadOnlyDictionary<string, DateTime>>(target, "rds:DescribeDBMajorEngineVersions", async c =>
+        {
+            var starts = new Dictionary<string, DateTime>();
+            string? marker = null;
+            var pages = 0;
+            do
+            {
+                var resp = await c.Rds.DescribeDBMajorEngineVersionsAsync(new Rds.DescribeDBMajorEngineVersionsRequest { Engine = engine, Marker = marker }, ct);
+                foreach (var v in resp.DBMajorEngineVersions ?? [])
+                    if (v.MajorEngineVersion is { } major
+                        && (v.SupportedEngineLifecycles ?? []).FirstOrDefault(l => l.LifecycleSupportName == "open-source-rds-extended-support") is { LifecycleSupportStartDate: { } start })
+                        starts[major] = DateTime.SpecifyKind(start, DateTimeKind.Utc);
+                marker = resp.Marker;
+            } while (!string.IsNullOrEmpty(marker) && ++pages < MaxPages);
+            return starts;
+        });
 
     public Task<IReadOnlyList<LogSource>> GetRdsLogSourcesAsync(Target target, RdsInstanceSnapshot db, CancellationToken ct) =>
         Call<IReadOnlyList<LogSource>>(target, "DescribeDBLogFiles", async c =>

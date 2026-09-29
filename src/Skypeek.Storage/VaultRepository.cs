@@ -10,7 +10,7 @@ namespace Skypeek.Storage;
 
 /// <summary>All persistence on top of the encrypted vault.</summary>
 public sealed class VaultRepository(Vault vault) :
-    ISettingsStore, ICatalogStore, ISyncRunStore, IHealthStore, INetworkStore, ICredentialHaltStore, IRequestLogStore
+    ISettingsStore, ICatalogStore, ISyncRunStore, IHealthStore, INetworkStore, ICostStore, ICredentialHaltStore, IRequestLogStore
 {
     private static readonly JsonSerializerOptions Json = new();
 
@@ -66,6 +66,7 @@ public sealed class VaultRepository(Vault vault) :
                      "DELETE FROM sync_runs WHERE target_id = $id",
                      "DELETE FROM health_snapshots WHERE target_id = $id",
                      "DELETE FROM network_snapshots WHERE target_id = $id",
+                     "DELETE FROM cost_snapshots WHERE target_id = $id",
                  })
         {
             using var cmd = Command(c, sql, ("$id", id));
@@ -268,6 +269,41 @@ public sealed class VaultRepository(Vault vault) :
             }
         }
         return (IReadOnlyList<NetworkSnapshot>)list;
+    });
+
+    // ---------------- costs ----------------
+
+    public void Save(long targetId, CostSnapshot snapshot)
+    {
+        var json = JsonSerializer.Serialize(snapshot, Json);
+        vault.Execute(c =>
+        {
+            using var cmd = Command(c, """
+                INSERT INTO cost_snapshots (target_id, json, updated_at) VALUES ($t, $j, $u)
+                ON CONFLICT(target_id) DO UPDATE SET json = excluded.json, updated_at = excluded.updated_at
+                """, ("$t", targetId), ("$j", json), ("$u", Iso(DateTime.UtcNow)));
+            cmd.ExecuteNonQuery();
+        });
+    }
+
+    IReadOnlyList<CostSnapshot> ICostStore.LoadAll() => vault.Execute(c =>
+    {
+        using var cmd = Command(c, "SELECT json FROM cost_snapshots");
+        using var r = cmd.ExecuteReader();
+        var list = new List<CostSnapshot>();
+        while (r.Read())
+        {
+            try
+            {
+                if (JsonSerializer.Deserialize<CostSnapshot>(r.GetString(0), Json) is { } s)
+                    list.Add(s);
+            }
+            catch (JsonException)
+            {
+                // Older format; fetched again on the next cost sync.
+            }
+        }
+        return (IReadOnlyList<CostSnapshot>)list;
     });
 
     // ---------------- credential halts ----------------

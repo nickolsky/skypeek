@@ -23,7 +23,7 @@ public sealed class MetricEvaluation
     public IReadOnlyList<MetricPoint> Points { get; init; } = [];
 
     [JsonIgnore]
-    public string Display => Current is null ? "n/a" : $"{Current:0}% (avg {Average:0}, peak {Peak:0})";
+    public string Display => Current is null ? "n/a" : $"{Current:0}% (last hour: avg {Average:0}, peak {Peak:0})";
 }
 
 public sealed class AlarmInfo

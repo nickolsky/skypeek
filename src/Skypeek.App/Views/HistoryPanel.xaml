@@ -1,0 +1,63 @@
+<UserControl x:Class="Skypeek.App.Views.HistoryPanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="clr-namespace:Skypeek.App.Views">
+    <UserControl.Resources>
+        <Style x:Key="PeriodButton" TargetType="RadioButton">
+            <Setter Property="Margin" Value="0,0,4,0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="Chip" CornerRadius="4" Padding="9,2" BorderThickness="1" BorderBrush="{StaticResource PanelBorder}" Background="Transparent">
+                            <ContentPresenter HorizontalAlignment="Center" TextElement.Foreground="{StaticResource TextNormal}" TextElement.FontSize="11" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Chip" Property="Background" Value="#3360CDFF" />
+                                <Setter TargetName="Chip" Property="BorderBrush" Value="#FF60CDFF" />
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chip" Property="BorderBrush" Value="#FF60CDFF" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+    <Border Style="{StaticResource Panel}" Margin="0,8,0,0">
+        <StackPanel>
+            <DockPanel>
+                <StackPanel x:Name="Periods" DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top">
+                    <RadioButton Content="1h" Tag="1" Style="{StaticResource PeriodButton}" Checked="OnPeriod" GroupName="{Binding GroupName, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+                    <RadioButton Content="6h" Tag="6" Style="{StaticResource PeriodButton}" Checked="OnPeriod" GroupName="{Binding GroupName, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+                    <RadioButton Content="24h" Tag="24" Style="{StaticResource PeriodButton}" Checked="OnPeriod" GroupName="{Binding GroupName, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+                    <RadioButton Content="3d" Tag="72" Style="{StaticResource PeriodButton}" Checked="OnPeriod" GroupName="{Binding GroupName, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+                    <RadioButton Content="7d" Tag="168" Style="{StaticResource PeriodButton}" Checked="OnPeriod" GroupName="{Binding GroupName, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+                </StackPanel>
+                <TextBlock Text="History" Style="{StaticResource SectionHeader}" Margin="0,0,0,2" />
+            </DockPanel>
+            <TextBlock x:Name="StatusText" Style="{StaticResource Caption}" TextWrapping="Wrap"
+                       Text="Pick a period to chart CPU and memory per node. The small charts above always show the last hour." />
+            <ItemsControl x:Name="SeriesList" Margin="0,4,0,0">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Grid Margin="0,3">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="150" />
+                                <ColumnDefinition Width="70" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="{Binding Scope}" Style="{StaticResource Body}" FontFamily="{StaticResource MonoFont}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" ToolTip="{Binding Scope}" />
+                            <TextBlock Grid.Column="1" Text="{Binding Label}" Style="{StaticResource Body}" VerticalAlignment="Center" />
+                            <views:Sparkline Grid.Column="2" Evaluation="{Binding Evaluation}" Width="220" Height="34" Margin="0,0,8,0" />
+                            <TextBlock Grid.Column="3" Text="{Binding StatsText}" Style="{StaticResource Caption}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                        </Grid>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
+    </Border>
+</UserControl>

@@ -427,6 +427,62 @@ public sealed class HealthService
     {
         var now = DateTime.UtcNow;
         var from = now.AddDays(-days);
+        if (await UsageSourcesAsync(target, resource, ct) is not var (kind, sources))
+            return new UsageReport(from, now, [], Provisioning.Unknown, ["Usage analysis is not available for this resource type."], now);
+
+        var queries = new List<MetricQuery>();
+        for (var i = 0; i < sources.Count; i++)
+            foreach (var stat in new[] { "Average", "Minimum", "Maximum" })
+                queries.Add(new MetricQuery($"u{i}{stat.ToLowerInvariant()}", sources[i].Namespace, sources[i].MetricName, sources[i].Dimensions, 3600, stat));
+        var data = queries.Count == 0
+            ? new Dictionary<string, IReadOnlyList<MetricPoint>>()
+            : await _gateway.GetMetricDataAsync(target, queries, from, now, ct);
+
+        var series = new List<UsageSeries>();
+        for (var i = 0; i < sources.Count; i++)
+        {
+            var source = sources[i];
+            IReadOnlyList<MetricPoint> Points(string stat)
+            {
+                var points = data.GetValueOrDefault($"u{i}{stat}") ?? [];
+                return source.ToPercent is { } f ? points.Select(p => p with { Value = Math.Clamp(f(p.Value), 0, 100) }).ToList() : points;
+            }
+            var (min, max) = source.Inverted ? (Points("maximum"), Points("minimum")) : (Points("minimum"), Points("maximum"));
+            series.Add(UsageAnalysis.Summarize(source.Scope, source.Metric, Points("average"), min, max, source.Estimated));
+        }
+        var (verdict, reasons) = UsageAnalysis.Recommend(series, kind);
+        return new UsageReport(from, now, series, verdict, reasons, DateTime.UtcNow);
+    }
+
+    /// <summary>
+    /// CPU/memory of the resource's nodes over <paramref name="range"/>, read from CloudWatch on demand (for the chart
+    /// period switch). The point spacing grows with the range so each chart stays around 100–300 points.
+    /// </summary>
+    public async Task<IReadOnlyList<HistorySeries>> GetHistoryAsync(Target target, ResourceStatus resource, TimeSpan range, CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+        if (await UsageSourcesAsync(target, resource, ct) is not var (_, sources) || sources.Count == 0)
+            return [];
+        var period = range.TotalHours switch { <= 3 => 60, <= 12 => 120, <= 48 => 600, <= 96 => 1200, _ => 3600 };
+        var queries = sources.Select((s, i) => new MetricQuery($"h{i}", s.Namespace, s.MetricName, s.Dimensions, period)).ToList();
+        var data = await _gateway.GetMetricDataAsync(target, queries, now - range, now, ct);
+        var settings = _settings.Settings;
+        var th = HealthRules.ResolveThresholds(settings, target, resource);
+        return sources.Select((s, i) =>
+        {
+            var points = data.GetValueOrDefault($"h{i}") ?? [];
+            if (s.ToPercent is { } f)
+                points = points.Select(p => p with { Value = Math.Clamp(f(p.Value), 0, 100) }).ToList();
+            var isCpu = s.Metric == "CPU";
+            // Colour by threshold over the whole range: a breach anywhere in it shows.
+            var eval = HealthRules.EvaluateMetric(s.Metric, points, isCpu ? th.CpuWarn : th.MemWarn, isCpu ? th.CpuCritical : th.MemCritical, settings.SustainedMinutes, now);
+            return new HistorySeries(s.Scope, s.Metric, eval, s.Estimated);
+        }).ToList();
+    }
+
+    /// <summary>The CPU/memory series behind a resource (one per node), shared by usage analysis and history charts.</summary>
+    private async Task<(string Kind, List<UsageSource> Sources)?> UsageSourcesAsync(Target target, ResourceStatus resource, CancellationToken ct)
+    {
         var sources = new List<UsageSource>();
         string kind;
         switch (resource)
@@ -480,31 +536,9 @@ public sealed class HealthService
                 }
                 break;
             default:
-                return new UsageReport(from, now, [], Provisioning.Unknown, ["Usage analysis is not available for this resource type."], now);
+                return null;
         }
-
-        var queries = new List<MetricQuery>();
-        for (var i = 0; i < sources.Count; i++)
-            foreach (var stat in new[] { "Average", "Minimum", "Maximum" })
-                queries.Add(new MetricQuery($"u{i}{stat.ToLowerInvariant()}", sources[i].Namespace, sources[i].MetricName, sources[i].Dimensions, 3600, stat));
-        var data = queries.Count == 0
-            ? new Dictionary<string, IReadOnlyList<MetricPoint>>()
-            : await _gateway.GetMetricDataAsync(target, queries, from, now, ct);
-
-        var series = new List<UsageSeries>();
-        for (var i = 0; i < sources.Count; i++)
-        {
-            var source = sources[i];
-            IReadOnlyList<MetricPoint> Points(string stat)
-            {
-                var points = data.GetValueOrDefault($"u{i}{stat}") ?? [];
-                return source.ToPercent is { } f ? points.Select(p => p with { Value = Math.Clamp(f(p.Value), 0, 100) }).ToList() : points;
-            }
-            var (min, max) = source.Inverted ? (Points("maximum"), Points("minimum")) : (Points("minimum"), Points("maximum"));
-            series.Add(UsageAnalysis.Summarize(source.Scope, source.Metric, Points("average"), min, max, source.Estimated));
-        }
-        var (verdict, reasons) = UsageAnalysis.Recommend(series, kind);
-        return new UsageReport(from, now, series, verdict, reasons, DateTime.UtcNow);
+        return (kind, sources);
     }
 
     /// <summary>Number of CloudWatch metrics one metrics poll requests for the target (for the cost estimate).</summary>

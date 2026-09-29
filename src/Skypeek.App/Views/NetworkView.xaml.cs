@@ -241,6 +241,7 @@ public partial class NetworkView
             SubnetDetail d => d.ConsoleUrl,
             InterfaceDetail d => d.ConsoleUrl,
             SecurityGroupDetail d => d.ConsoleUrl,
+            GatewayDetail d => d.ConsoleUrl,
             _ => null,
         };
         if (url is not null)

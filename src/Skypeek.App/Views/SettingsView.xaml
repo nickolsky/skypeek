@@ -120,6 +120,13 @@
                                 <CheckBox x:Name="FeatElb" Content="Load balancers" Margin="0,0,16,0" Checked="OnEditorChanged" Unchecked="OnEditorChanged" />
                                 <CheckBox x:Name="FeatNetwork" Content="Network tab (VPCs, IPs, security groups)" Checked="OnEditorChanged" Unchecked="OnEditorChanged" />
                             </WrapPanel>
+                            <TextBlock Text="Costs" Style="{StaticResource FieldLabel}" />
+                            <WrapPanel>
+                                <CheckBox x:Name="FeatCost" Content="Estimated monthly cost (AWS Price List, free)" Margin="0,0,16,0" Checked="OnEditorChanged" Unchecked="OnEditorChanged"
+                                          ToolTip="On-demand list price × size × 730 hours per resource; prices are cached for a week. Needs pricing:GetProducts." />
+                                <CheckBox x:Name="FeatCostExplorer" Content="Billed cost (Cost Explorer, $0.01 per request, about 2 requests twice a day)" Checked="OnEditorChanged" Unchecked="OnEditorChanged"
+                                          ToolTip="This and last month by service for the region, and per resource for 14 days if resource-level data is enabled in Billing. Needs ce:GetCostAndUsage and ce:GetCostAndUsageWithResources." />
+                            </WrapPanel>
 
                             <TextBlock Text="Schedules" Style="{StaticResource SectionHeader}" />
                             <Grid>

@@ -10,14 +10,17 @@ public sealed record NetworkTargetDetail(Target Target, NetworkSnapshot? Snapsho
         : $"{s.Vpcs.Count} VPC(s), {s.Subnets.Count} subnet(s), {s.Interfaces.Count} network interface(s), {s.SecurityGroups.Count} security group(s), {s.ElasticIps.Count} Elastic IP(s).";
 }
 
-public sealed record VpcDetail(Target Target, VpcInfo Vpc, int Subnets, int Interfaces, int Groups)
+public sealed record VpcDetail(Target Target, VpcInfo Vpc, int Subnets, int Interfaces, int Groups, VpcMap Map, string AccessSummary)
 {
     public string ConsoleUrl => $"https://{Target.Region}.console.aws.amazon.com/vpcconsole/home?region={Target.Region}#VpcDetails:VpcId={Vpc.Id}";
     public string CidrText => string.Join(", ", Vpc.Cidrs.Concat(Vpc.Ipv6Cidrs));
 }
 
-public sealed record SubnetDetail(Target Target, SubnetInfo Subnet, IReadOnlyList<NetworkInterfaceInfo> Interfaces)
+public sealed record SubnetDetail(Target Target, SubnetInfo Subnet, IReadOnlyList<NetworkInterfaceInfo> Interfaces, SubnetRouting Routing)
 {
+    public string AccessText => $"{VpcMap.AccessLabel(Routing.Access)}: {Routing.Summary}";
+    public string RouteTableText => Routing.RouteTable is { } t ? $"{t.Title}{(Routing.ExplicitAssociation ? "" : " (VPC main table)")}" : "none";
+    public IReadOnlyList<string> Routes => Routing.RouteTable?.Routes.Select(r => r.Text).ToList() ?? [];
     public string ConsoleUrl => $"https://{Target.Region}.console.aws.amazon.com/vpcconsole/home?region={Target.Region}#SubnetDetails:subnetId={Subnet.Id}";
 }
 
@@ -25,6 +28,21 @@ public sealed record InterfaceDetail(Target Target, NetworkInterfaceInfo Interfa
 {
     public string ConsoleUrl => $"https://{Target.Region}.console.aws.amazon.com/ec2/home?region={Target.Region}#NetworkInterface:networkInterfaceId={Interface.Id}";
     public bool HasInstance => Interface.InstanceId is not null;
+}
+
+/// <summary>An internet gateway, NAT gateway, endpoint or peering in the Gateways group.</summary>
+public sealed record GatewayDetail(Target Target, string Id, string Title, string Kind, IReadOnlyList<(string Label, string Value)> Rows, IReadOnlyList<string> UsedBy)
+{
+    public IReadOnlyList<KeyValuePair<string, string>> Fields => Rows.Select(r => new KeyValuePair<string, string>(r.Label, r.Value)).ToList();
+    public string UsedByText => UsedBy.Count == 0 ? "No route table routes to it." : $"Route tables that route to it: {string.Join(", ", UsedBy)}";
+    public string ConsoleUrl => Id.Split('-')[0] switch
+    {
+        "nat" => $"https://{Target.Region}.console.aws.amazon.com/vpcconsole/home?region={Target.Region}#NatGatewayDetails:natGatewayId={Id}",
+        "igw" => $"https://{Target.Region}.console.aws.amazon.com/vpcconsole/home?region={Target.Region}#InternetGateway:internetGatewayId={Id}",
+        "vpce" => $"https://{Target.Region}.console.aws.amazon.com/vpcconsole/home?region={Target.Region}#EndpointDetails:vpcEndpointId={Id}",
+        "pcx" => $"https://{Target.Region}.console.aws.amazon.com/vpcconsole/home?region={Target.Region}#PeeringConnectionDetails:VpcPeeringConnectionId={Id}",
+        _ => $"https://{Target.Region}.console.aws.amazon.com/vpcconsole/home?region={Target.Region}",
+    };
 }
 
 public sealed record ElasticIpDetail(Target Target, ElasticIpInfo Address, NetworkInterfaceInfo? Interface)
@@ -73,13 +91,13 @@ public static class NetworkTreeBuilder
                 Payload = new NetworkTargetDetail(target, snapshot, status),
             };
             if (snapshot is not null)
-                AddVpcs(root, target, snapshot);
+                AddVpcs(root, target, snapshot, session.Costs.UnitPrice(target, CostRules.NatKey));
             roots.Add(root);
         }
         return roots;
     }
 
-    private static void AddVpcs(DashNode root, Target target, NetworkSnapshot s)
+    private static void AddVpcs(DashNode root, Target target, NetworkSnapshot s, double? natHourly)
     {
         var canEdit = target.ElevatedProfileName is { Length: > 0 };
         var groupsById = s.SecurityGroups.ToDictionary(g => g.Id);
@@ -91,6 +109,12 @@ public static class NetworkTreeBuilder
             var subnets = s.Subnets.Where(x => x.VpcId == vpc.Id).OrderBy(x => x.AvailabilityZone).ThenBy(x => x.Title, StringComparer.OrdinalIgnoreCase).ToList();
             var groups = s.SecurityGroups.Where(g => g.VpcId == vpc.Id).ToList();
             var interfaces = s.Interfaces.Where(i => i.VpcId == vpc.Id).ToList();
+            var routings = subnets.ToDictionary(x => x.Id, x => NetworkRules.Routing(s, x));
+            var byAccess = routings.Values.GroupBy(r => r.Access).OrderBy(g => g.Key).Select(g => $"{g.Count()} {VpcMap.AccessLabel(g.Key)}");
+            var natIps = s.NatGateways.Where(n => n.VpcId == vpc.Id && n.IsPublic).SelectMany(n => n.PublicIps).ToList();
+            var accessSummary = subnets.Count == 0 ? "No subnets." : $"Subnets: {string.Join(", ", byAccess)}."
+                + (s.InternetGateways.Any(g => !g.EgressOnly && g.VpcIds.Contains(vpc.Id)) ? " Has an internet gateway." : " No internet gateway.")
+                + (natIps.Count > 0 ? $" Outbound NAT traffic appears as {string.Join(", ", natIps)}." : "");
             var vpcNode = new DashNode
             {
                 Key = $"{target.Id}:vpc:{vpc.Id}",
@@ -98,7 +122,8 @@ public static class NetworkTreeBuilder
                 Title = vpc.Title,
                 Subtitle = $"{string.Join(", ", vpc.Cidrs)}{(vpc.IsDefault ? " · default VPC" : "")} · {subnets.Count} subnet(s) · {interfaces.Count} interface(s)",
                 SearchText = $"{vpc.Id} {string.Join(' ', vpc.Ipv6Cidrs)}",
-                Payload = new VpcDetail(target, vpc, subnets.Count, interfaces.Count, groups.Count),
+                Level = routings.Values.Any(r => r.Warning is not null || r.Access == InternetAccess.Blackhole) ? HealthLevel.Warn : HealthLevel.Ok,
+                Payload = new VpcDetail(target, vpc, subnets.Count, interfaces.Count, groups.Count, VpcMap.Build(s, vpc), accessSummary),
             };
 
             var subnetGroup = new DashNode
@@ -112,23 +137,26 @@ public static class NetworkTreeBuilder
             foreach (var subnet in subnets)
             {
                 var inSubnet = interfaces.Where(i => i.SubnetId == subnet.Id).OrderBy(i => IpSortKey(i.PrivateIp)).ToList();
-                var level = subnet.UsageLevel;
+                var routing = routings[subnet.Id];
+                var level = routing.Warning is not null || routing.Access == InternetAccess.Blackhole ? HealthLevel.Warn : subnet.UsageLevel;
                 var subnetNode = new DashNode
                 {
                     Key = $"{target.Id}:subnet:{subnet.Id}",
                     Kind = NodeKind.Subnet,
                     Title = subnet.Title,
-                    Subtitle = $"{subnet.Cidr} · {subnet.AvailabilityZone} · {subnet.Kind}",
+                    Subtitle = $"{subnet.Cidr} · {subnet.AvailabilityZone} · {VpcMap.AccessLabel(routing.Access)}{(routing.Via is { } via && routing.Access is not InternetAccess.Isolated ? $" ({via})" : "")}",
                     Gauges = subnet.UsedPercent is { } used ? [new Gauge("IPs", used, $"{subnet.UsedIps}/{subnet.UsableIps}", level)] : [],
                     SearchText = $"{subnet.Id} {string.Join(' ', subnet.Ipv6Cidrs)}",
                     Level = level,
-                    Payload = new SubnetDetail(target, subnet, inSubnet),
+                    Payload = new SubnetDetail(target, subnet, inSubnet, routing),
                 };
                 foreach (var eni in inSubnet)
                     subnetNode.Children.Add(InterfaceNode(target, eni, subnet, eips.GetValueOrDefault(eni.Id)));
                 subnetGroup.Children.Add(subnetNode);
             }
             vpcNode.Children.Add(subnetGroup);
+
+            vpcNode.Children.Add(GatewayGroup(target, vpc, s, vpcNode.Key, natHourly));
 
             var sgGroup = new DashNode
             {
@@ -182,6 +210,57 @@ public static class NetworkTreeBuilder
             }
             root.Children.Add(eipNode);
         }
+    }
+
+    /// <summary>Internet gateways, NAT gateways (with their public IPs), endpoints and peerings of a VPC.</summary>
+    private static DashNode GatewayGroup(Target target, VpcInfo vpc, NetworkSnapshot s, string vpcKey, double? natHourly)
+    {
+        var tables = s.RouteTables.Where(t => t.VpcId == vpc.Id).ToList();
+        List<string> UsedBy(string id) => tables.Where(t => t.Routes.Any(r => r.Target == id)).Select(t => t.Name ?? t.Id).ToList();
+        string SubnetName(string? id) => s.Subnets.FirstOrDefault(x => x.Id == id)?.Title ?? id ?? "?";
+        var group = new DashNode
+        {
+            Key = $"{vpcKey}:gateways",
+            Kind = NodeKind.Group,
+            Title = "Gateways & connections",
+            Payload = new MessageDetail("How this VPC connects out: internet gateways, NAT gateways with the public IPs outbound traffic uses, VPC endpoints and peering connections. The VPC's map shows which subnets use which."),
+        };
+        void Add(string id, string title, string subtitle, string kind, IReadOnlyList<(string, string)> rows, string search, HealthLevel level = HealthLevel.Ok) =>
+            group.Children.Add(new DashNode
+            {
+                Key = $"{target.Id}:gw:{id}",
+                Kind = NodeKind.Gateway,
+                Title = title,
+                Subtitle = subtitle,
+                SearchText = $"{id} {search}",
+                Level = level,
+                Payload = new GatewayDetail(target, id, title, kind, rows, UsedBy(id)),
+            });
+
+        foreach (var igw in s.InternetGateways.Where(g => g.VpcIds.Contains(vpc.Id)))
+            Add(igw.Id, igw.Name ?? (igw.EgressOnly ? "Egress-only internet gateway" : "Internet gateway"), $"{igw.Id} · used by {UsedBy(igw.Id).Count} route table(s)",
+                igw.EgressOnly ? "Egress-only internet gateway" : "Internet gateway",
+                [("ID", igw.Id), ("Type", igw.EgressOnly ? "egress-only (IPv6 outbound)" : "internet gateway (two-way)")], "");
+        foreach (var nat in s.NatGateways.Where(n => n.VpcId == vpc.Id))
+            Add(nat.Id, nat.Name ?? (nat.IsPublic ? "NAT gateway" : "Private NAT gateway"), $"{nat.Id} · {nat.PublicIpText} · {nat.State} · in {SubnetName(nat.SubnetId)}",
+                nat.IsPublic ? "NAT gateway" : "Private NAT gateway",
+                [("ID", nat.Id), ("State", nat.State + (nat.FailureMessage is { } f ? $": {f}" : "")), ("Connectivity", nat.ConnectivityType),
+                 ("Public IP", nat.PublicIpText), ("Private IP", string.Join(", ", nat.PrivateIps)), ("Subnet", SubnetName(nat.SubnetId)),
+                 .. (natHourly is { } hourly && nat.State == "available"
+                     ? new[] { ("Estimated cost", $"~{CostRules.Money(hourly * CostRules.HoursPerMonth)}/month ({hourly:0.000} USD/h × 730 h), plus data processed per GB") }
+                     : [])],
+                $"{string.Join(' ', nat.PublicIps)} {string.Join(' ', nat.PrivateIps)}", nat.State is "available" or "pending" ? HealthLevel.Ok : HealthLevel.Warn);
+        foreach (var ep in s.Endpoints.Where(e => e.VpcId == vpc.Id))
+            Add(ep.Id, ep.Name ?? $"Endpoint · {ep.ShortService}", $"{ep.Id} · {ep.Type} · {ep.State}", $"VPC endpoint ({ep.Type})",
+                [("ID", ep.Id), ("Service", ep.ServiceName), ("Type", ep.Type), ("State", ep.State ?? "?"),
+                 ("Route tables", string.Join(", ", ep.RouteTableIds)), ("Subnets", string.Join(", ", ep.SubnetIds.Select(SubnetName)))], ep.ServiceName);
+        foreach (var p in s.Peerings.Where(p => p.RequesterVpcId == vpc.Id || p.AccepterVpcId == vpc.Id))
+            Add(p.Id, p.Name ?? "Peering", $"{p.Id} · {p.Status} · with {p.PeerText(vpc.Id)}", "Peering connection",
+                [("ID", p.Id), ("Status", p.Status ?? "?"), ("Peer", p.PeerText(vpc.Id))], $"{p.RequesterCidr} {p.AccepterCidr}");
+        foreach (var tgw in tables.SelectMany(t => t.Routes).Select(r => r.Target).Where(t => t?.StartsWith("tgw-", StringComparison.Ordinal) == true).Distinct())
+            Add(tgw!, "Transit gateway", $"{tgw} · used by {UsedBy(tgw!).Count} route table(s)", "Transit gateway", [("ID", tgw!)], "");
+        group.Right = $"{group.Children.Count}";
+        return group;
     }
 
     private static DashNode InterfaceNode(Target target, NetworkInterfaceInfo eni, SubnetInfo? subnet, ElasticIpInfo? eip) => new()

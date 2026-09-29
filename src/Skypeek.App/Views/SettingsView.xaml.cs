@@ -302,6 +302,8 @@ public partial class SettingsView
         FeatEc2.IsChecked = t.Ec2Enabled;
         FeatElb.IsChecked = t.ElbEnabled;
         FeatNetwork.IsChecked = t.NetworkEnabled;
+        FeatCost.IsChecked = t.CostEnabled;
+        FeatCostExplorer.IsChecked = t.CostExplorerEnabled;
         NetworkInterval.SelectedItem = NetworkOptions.FirstOrDefault(o => o.Minutes == t.NetworkIntervalMinutes) ?? NetworkOptions[2];
 
         var preset = CatalogOptions.FirstOrDefault(o => o.Minutes == t.CatalogIntervalMinutes);
@@ -399,6 +401,8 @@ public partial class SettingsView
         t.Ec2Enabled = FeatEc2.IsChecked == true;
         t.ElbEnabled = FeatElb.IsChecked == true;
         t.NetworkEnabled = FeatNetwork.IsChecked == true;
+        t.CostEnabled = FeatCost.IsChecked == true;
+        t.CostExplorerEnabled = FeatCostExplorer.IsChecked == true;
         if (NetworkInterval.SelectedItem is IntervalOption n) t.NetworkIntervalMinutes = n.Minutes;
         NetworkInterval.IsEnabled = t.NetworkEnabled;
 

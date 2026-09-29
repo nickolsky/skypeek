@@ -9,7 +9,16 @@ public sealed class Sparkline : FrameworkElement
 {
     public static readonly DependencyProperty EvaluationProperty = DependencyProperty.Register(
         nameof(Evaluation), typeof(MetricEvaluation), typeof(Sparkline),
-        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender, (d, _) => ((Sparkline)d).UpdateToolTip()));
+
+    /// <summary>Says which period the line covers (the last metrics poll's window, one hour).</summary>
+    private void UpdateToolTip()
+    {
+        var points = Evaluation?.Points;
+        ToolTip = points is not { Count: > 0 } ? "No data in the last hour"
+            : $"{points[0].Timestamp.ToLocalTime():t} – {points[^1].Timestamp.ToLocalTime():t}: {points.Count} point(s), one every {Math.Max(1, Evaluation!.PeriodSeconds / 60)} min · "
+              + $"min {points.Min(p => p.Value):0}, avg {Evaluation.Average:0}, peak {Evaluation.Peak:0}. Longer periods: Usage (last 30 days).";
+    }
 
     public MetricEvaluation? Evaluation
     {

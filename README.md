@@ -11,6 +11,7 @@ A read-only Windows tray tool for everyday AWS lookups, built so you don't need 
 - **Load balancers:** ALB/NLB with target groups and per-target health, traffic, alarms, and listener routing rules; read-only, with links to manage them in the console.
 - **Network tab:** VPCs, subnets with address usage, every IP address (network interface) and what uses it, Elastic IPs, and security groups with their rules; downloaded on a schedule and cached. Security group rules can be added, changed and deleted (elevated key, approved per call).
 - **Hide from the dashboard:** any resource you don't care about can be hidden; it is then not shown, not counted and not queried for metrics.
+- **Monthly cost (optional, per target):** list-price estimates per resource and per group, and billed cost from Cost Explorer.
 - **Request log:** records every AWS call, with no values or credentials.
 - **Encrypted local store:** unlocked with a master password.
 
@@ -83,6 +84,7 @@ Each target has a **read-only profile**, used for everything including backgroun
 ## Elastic Beanstalk versions, nodes and actions
 
 - **Versions:** each environment shows its deployed version with its creation date, and whether it is the newest version of the application. The tree marks environments that are behind with "not latest version".
+- **Charts:** the small CPU/memory lines show the last hour (the metrics poll's window), one point per minute (5 minutes for EC2 basic monitoring); hover for the exact range, min, average and peak. **History** in the EB, ECS, RDS, ElastiCache and EC2 details switches the period: **1h / 6h / 24h / 3d / 7d**, one chart per node and metric, read from CloudWatch when you pick it (the choice sticks for the next resource; results are kept 5 minutes). For hourly statistics over a month use **Usage (last 30 days)**.
 - **Nodes:** each EC2 instance of the environment is listed with its EC2 state, type, zone, IP and launch time, its EB health and causes, the version deployed on it, and CPU/memory.
 - **Actions:**
 
@@ -129,10 +131,22 @@ Each target has a **read-only profile**, used for everything including backgroun
 ## Network (VPC) and security groups
 
 - **Tree:** target → VPC → **Subnets** (CIDR, zone, public/private, used/free addresses; nearly full subnets are flagged) → the IP addresses in each subnet, with what uses them (EC2 instance, load balancer, RDS, ElastiCache, ECS task, Lambda, NAT gateway, VPC endpoint, …); VPC → **Security groups**; **Elastic IPs** (unassociated ones are flagged). Search finds IPs, CIDRs, ids, names, ports and rule sources.
+- **Resource map** (select a VPC): subnets → route tables → network connections (internet gateway, NAT gateways with their public IPs, egress-only gateway, transit gateway, VPN gateway, peering, gateway endpoints), joined by lines like the console's map. Click a box to highlight its path and see its routes. Each subnet is classified by its default route: **public** (internet gateway), **private + NAT** (outbound only, and the public IP it appears as), **routed elsewhere** (transit gateway, peering, VPN, appliance), **isolated** (no default route) or **blackhole** (the route's target was deleted). Subnets that use the main route table implicitly are marked, and a NAT gateway that sits in a subnet without an internet route is flagged. The **Gateways & connections** group lists the same gateways with their details (NAT public and private IPs are searchable).
 - **Cached:** the inventory is downloaded by its own job (default hourly, per target in Settings → Accounts & regions; **Download all now** on the tab) and stored in the vault, so the tab opens instantly; the tab shows when it was downloaded.
 - **Security group details:** inbound and outbound rules (protocol, ports, source, description, rule id; rules open to 0.0.0.0/0 or ::/0 are highlighted), the interfaces that use the group, and the groups that allow it as a source.
 - **Editing rules:** **Add inbound/outbound rule…**, **Edit…** and **Delete…**. The editor has presets (SSH, RDP, HTTP, HTTPS, PostgreSQL, MySQL, MSSQL, Redis, all traffic, …), IPv4/IPv6 CIDR, security group or prefix list sources, **My IP** (asks `checkip.amazonaws.com`) and a description. Each change is one rule with one source: `ec2:AuthorizeSecurityGroupIngress/Egress`, `ec2:ModifySecurityGroupRules` or `ec2:RevokeSecurityGroupIngress/Egress` by rule id. Before an edit or delete Skypeek re-reads the rule and stops if it changed. Deleting a rule, or opening one to the whole internet, asks you to type the group ID. After the change the group is re-read.
-- **Calls:** `ec2:DescribeVpcs`, `DescribeSubnets`, `DescribeNetworkInterfaces`, `DescribeSecurityGroups`, `DescribeSecurityGroupRules`, `DescribeAddresses`.
+- **Calls:** `ec2:DescribeVpcs`, `DescribeSubnets`, `DescribeNetworkInterfaces`, `DescribeSecurityGroups`, `DescribeSecurityGroupRules`, `DescribeAddresses`, `DescribeRouteTables`, `DescribeInternetGateways`, `DescribeEgressOnlyInternetGateways`, `DescribeNatGateways`, `DescribeVpcEndpoints`, `DescribeVpcPeeringConnections`.
+
+## Monthly cost
+
+Off by default; turn on per target in Settings → Accounts & regions → **Costs**.
+
+- **Estimated monthly cost (AWS Price List, free):** on-demand list price × size × 730 hours, shown next to each resource in the tree, as totals on groups and the target, and in the details (with how it was computed):
+  - EC2 instances (by type and OS; a stopped instance costs nothing for compute), Elastic Beanstalk environments (their instances), ECS services on Fargate (vCPU and memory of the running tasks), RDS instances (see below), ElastiCache nodes, load balancers (hourly part; capacity units depend on traffic) and NAT gateways (hourly part, on the Network tab and in the target total).
+  - RDS: the instance at its deployment's price (Single-AZ, Multi-AZ, or a Multi-AZ DB cluster priced once on its writer), allocated storage, and provisioned IOPS/throughput above the gp3 baseline (all IOPS for io1/io2). Each read replica is priced as its own instance; a primary's row also shows the total with its replicas, and a cluster's row the total of its instances. Aurora I/O-Optimized uses its own instance price. Aurora storage/I/O and Serverless v2 are usage-based and left out. An engine version in billed Extended Support is flagged (dates from `rds:DescribeDBMajorEngineVersions`) and the estimate shows "≥", because that per-vCPU charge is not included; a warning appears 120 days before standard support ends. Burstable (db.t*) CPU credits above the baseline and backup storage beyond the free allowance (about your total database storage in the region) are not included.
+  - Not included: EBS volumes, data transfer, backups/snapshots, load balancer capacity units, NAT data processing, and any discount (savings plans, reserved instances, credits). Treat it as an on-demand upper bound for compute.
+  - Prices come from `pricing:GetProducts` (served from us-east-1), are cached in the vault for a week, and are read when a new instance type appears.
+- **Billed cost (Cost Explorer):** this month so far and last month for the target's region, by service (target details), and — if **resource-level data at daily granularity** is enabled in Billing → Cost Management preferences — the last 14 days per resource (details show "billed in the last 14 days"). Uses `ce:GetCostAndUsage` and `ce:GetCostAndUsageWithResources`; **each Cost Explorer request costs $0.01**, so Skypeek reads it at most every 12 hours (about $0.04 per day per target) or when you click **Refresh costs**. Global services (e.g. Route 53, CloudFront) are not in a region's total. In an AWS Organization, Cost Explorer data may only be available in the payer account.
 
 ## Hiding resources
 

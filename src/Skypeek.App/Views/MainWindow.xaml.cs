@@ -95,6 +95,7 @@ public partial class MainWindow
         _network.Wipe();
         UsagePanel.ClearCache();
         ListenersPanel.ClearCache();
+        HistoryPanel.ClearCache();
         Hide();
     }
 

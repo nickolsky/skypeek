@@ -1,0 +1,59 @@
+<UserControl x:Class="Skypeek.Desktop.Views.HistoryPanel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="using:Skypeek.Desktop.Views">
+    <UserControl.Styles>
+        <Style Selector="RadioButton.period">
+            <Setter Property="Margin" Value="0,0,4,0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Border Name="Chip" CornerRadius="4" Padding="9,2" BorderThickness="1" BorderBrush="{StaticResource PanelBorder}" Background="Transparent">
+                        <ContentPresenter Content="{TemplateBinding Content}" HorizontalAlignment="Center" Foreground="{StaticResource TextNormal}" FontSize="11" />
+                    </Border>
+                </ControlTemplate>
+            </Setter>
+        </Style>
+        <Style Selector="RadioButton.period:checked /template/ Border#Chip">
+            <Setter Property="Background" Value="#3360CDFF" />
+            <Setter Property="BorderBrush" Value="#FF60CDFF" />
+        </Style>
+        <Style Selector="RadioButton.period:pointerover /template/ Border#Chip">
+            <Setter Property="BorderBrush" Value="#FF60CDFF" />
+        </Style>
+    </UserControl.Styles>
+    <Border Classes="panel" Margin="0,8,0,0">
+        <StackPanel>
+            <DockPanel>
+                <StackPanel x:Name="Periods" DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top">
+                    <RadioButton Content="1h" Tag="1" Classes="period" IsCheckedChanged="OnPeriod" />
+                    <RadioButton Content="6h" Tag="6" Classes="period" IsCheckedChanged="OnPeriod" />
+                    <RadioButton Content="24h" Tag="24" Classes="period" IsCheckedChanged="OnPeriod" />
+                    <RadioButton Content="3d" Tag="72" Classes="period" IsCheckedChanged="OnPeriod" />
+                    <RadioButton Content="7d" Tag="168" Classes="period" IsCheckedChanged="OnPeriod" />
+                </StackPanel>
+                <TextBlock Classes="section" Text="History" Margin="0,0,0,2" />
+            </DockPanel>
+            <TextBlock Classes="caption" x:Name="StatusText" TextWrapping="Wrap"
+                       Text="Pick a period to chart CPU and memory per node. The small charts above always show the last hour." />
+            <ItemsControl x:Name="SeriesList" Margin="0,4,0,0">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Grid Margin="0,3">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="150" />
+                                <ColumnDefinition Width="70" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Classes="body" Text="{Binding Scope}" FontFamily="{StaticResource MonoFont}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" ToolTip.Tip="{Binding Scope}" />
+                            <TextBlock Classes="body" Grid.Column="1" Text="{Binding Label}" VerticalAlignment="Center" />
+                            <views:Sparkline Grid.Column="2" Evaluation="{Binding Evaluation}" Width="220" Height="34" Margin="0,0,8,0" />
+                            <TextBlock Classes="caption" Grid.Column="3" Text="{Binding StatsText}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                        </Grid>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
+    </Border>
+</UserControl>

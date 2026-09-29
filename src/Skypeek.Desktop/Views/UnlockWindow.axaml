@@ -1,0 +1,33 @@
+<Window x:Class="Skypeek.Desktop.Views.UnlockWindow"
+                 xmlns="https://github.com/avaloniaui"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 Title="Skypeek"
+                 Width="420" SizeToContent="Height"
+                 CanResize="False"
+                 WindowStartupLocation="CenterScreen"
+                 Topmost="True"
+                
+                
+        xmlns:views="using:Skypeek.Desktop.Views">
+    <StackPanel>
+        <StackPanel Margin="24,8,24,24">
+            <TextBlock x:Name="Heading" FontSize="20" FontWeight="SemiBold" Text="Unlock" />
+            <TextBlock Classes="caption" x:Name="Explanation" Margin="0,6,0,16" TextWrapping="Wrap" />
+
+            <TextBlock Classes="caption" Text="Master password" Margin="0,0,0,4" />
+            <TextBox PasswordChar="•" RevealPassword="False" x:Name="Password" KeyDown="OnKeyDown" />
+            <TextBlock Classes="caption" x:Name="ConfirmLabel" Text="Confirm master password" Margin="0,10,0,4" />
+            <TextBox PasswordChar="•" RevealPassword="False" x:Name="Confirm" KeyDown="OnKeyDown" />
+
+            <TextBlock x:Name="Error" Margin="0,10,0,0" Foreground="#E8464A" TextWrapping="Wrap" IsVisible="False" />
+
+            <Grid Margin="0,18,0,0">
+                <HyperlinkButton x:Name="ResetLink" Content="Forgot password? Reset vault" Padding="0" HorizontalAlignment="Left" Click="OnReset" />
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <ProgressBar Width="60" MinWidth="60" x:Name="Busy" IsIndeterminate="True" Margin="0,0,10,0" IsVisible="False" />
+                    <Button Classes="accent" x:Name="Submit" Content="Unlock" MinWidth="110" Click="OnSubmit" />
+                </StackPanel>
+            </Grid>
+        </StackPanel>
+    </StackPanel>
+</Window>

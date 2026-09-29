@@ -1,0 +1,83 @@
+<UserControl x:Class="Skypeek.Desktop.Views.DetailsView"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="using:Skypeek.Desktop.Views">
+    <Grid>
+        <TextBlock Classes="body" x:Name="Placeholder" Text="Select a secret or parameter to see its details."
+                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+
+        <ScrollViewer x:Name="DetailsBody" VerticalScrollBarVisibility="Auto" IsVisible="False" Focusable="False">
+            <StackPanel Margin="0,0,18,12">
+                <StackPanel Orientation="Horizontal">
+                    <Border Classes="badge">
+                        <TextBlock x:Name="KindText" FontSize="10" Foreground="{StaticResource TextStrong}" />
+                    </Border>
+                    <TextBlock Classes="caption" x:Name="LocationText" VerticalAlignment="Center" />
+                </StackPanel>
+                <DockPanel Margin="0,4,0,0">
+                    <views:IconButton DockPanel.Dock="Right" Symbol="Copy" Content="Name" Click="OnCopyName" Margin="6,0,0,0" />
+                    <views:IconButton DockPanel.Dock="Right" x:Name="CopyArnButton" Symbol="Copy" Content="ARN" Click="OnCopyArn" Margin="6,0,0,0" />
+                    <TextBlock x:Name="NameText" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap" FontFamily="{StaticResource MonoFont}"
+                               Foreground="{StaticResource TextStrong}" />
+                </DockPanel>
+
+                <Border Classes="panel" Margin="0,12,0,0">
+                    <StackPanel>
+                        <TextBlock Classes="section" Text="Value" Margin="0,0,0,2" />
+                        <TextBlock Classes="caption" x:Name="ValueHint" TextWrapping="Wrap" />
+                        <WrapPanel Margin="0,8,0,0">
+                            <views:IconButton Classes="accent" x:Name="RevealButton" Symbol="Eye" Content="Reveal" Click="OnReveal" Margin="0,0,6,4" />
+                            <views:IconButton x:Name="RevealElevatedButton" Symbol="ShieldKeyhole" Content="Reveal with elevated key" Click="OnRevealElevated" Margin="0,0,6,4" />
+                            <views:IconButton x:Name="CopyValueButton" Symbol="Copy" Content="Copy value" Click="OnCopyValue" IsEnabled="False" Margin="0,0,6,4" />
+                            <views:IconButton x:Name="HideButton" Symbol="EyeOff" Content="Hide" Click="OnHide" IsVisible="False" Margin="0,0,6,4" />
+                            <TextBlock Classes="caption" x:Name="Countdown" VerticalAlignment="Center" />
+                        </WrapPanel>
+
+                        <ProgressBar Width="60" MinWidth="60" x:Name="ValueBusy" IsIndeterminate="True" Margin="0,8,0,0" IsVisible="False" HorizontalAlignment="Left" />
+                        <TextBlock x:Name="ValueError" Foreground="#FFFF7B7F" TextWrapping="Wrap" Margin="0,8,0,0" IsVisible="False" />
+                        <TextBlock x:Name="MaskedValue" Text="••••••••••••" FontFamily="{StaticResource MonoFont}" Margin="0,8,0,0" FontSize="14" Foreground="{StaticResource TextNormal}" />
+
+                        <TextBox x:Name="ValueText" Margin="0,8,0,0" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True"
+                                 FontFamily="{StaticResource MonoFont}" MaxHeight="240" ScrollViewer.VerticalScrollBarVisibility="Auto" IsVisible="False" />
+
+                        <DataGrid x:Name="JsonGrid" Margin="0,8,0,0" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column"
+                                  IsVisible="False" MaxHeight="280">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Key" Binding="{Binding Key}" Width="180" FontFamily="{StaticResource MonoFont}" />
+                                <DataGridTextColumn Header="Value" Binding="{Binding Value}" Width="*" FontFamily="{StaticResource MonoFont}" />
+                                <DataGridTemplateColumn Header="" Width="70">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <Button Content="Copy" Padding="6,1" Click="OnCopyJsonValue" Tag="{Binding Value}" />
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </StackPanel>
+                </Border>
+
+                <DockPanel Margin="0,6,0,0">
+                    <views:IconButton DockPanel.Dock="Right" x:Name="RefreshMetaButton" Symbol="ArrowClockwise" Content="Refresh metadata"
+                               Click="OnRefreshMetadata" VerticalAlignment="Bottom" />
+                    <TextBlock Classes="section" Text="Metadata" />
+                </DockPanel>
+                <ItemsControl x:Name="Metadata">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Margin="0,2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="120" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Classes="caption" Text="{Binding Key}" />
+                                <TextBox Grid.Column="1" Text="{Binding Value, Mode=OneWay}" IsReadOnly="True" BorderThickness="0" Background="Transparent"
+                                         Foreground="{StaticResource TextNormal}" TextWrapping="Wrap" Padding="0" MinHeight="0" FontSize="12" />
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

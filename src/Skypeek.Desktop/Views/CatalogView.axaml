@@ -1,0 +1,79 @@
+<UserControl x:Class="Skypeek.Desktop.Views.CatalogView"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+            
+        xmlns:views="using:Skypeek.Desktop.Views">
+    <Grid Margin="0,8,0,0">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="5*" MinWidth="360" />
+            <ColumnDefinition Width="8" />
+            <ColumnDefinition Width="6*" MinWidth="380" />
+        </Grid.ColumnDefinitions>
+
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <TextBox x:Name="Query" PlaceholderText="Search secrets and parameters (name, description, tags, target, region)…"
+                        TextChanged="OnQueryChanged" Classes="clearButton" />
+
+            <WrapPanel Grid.Row="1" Margin="0,8,0,6">
+                <RadioButton x:Name="KindAll" Content="All" GroupName="kind" IsChecked="True" IsCheckedChanged="OnFilterChanged" MinWidth="60" />
+                <RadioButton x:Name="KindSecrets" Content="Secrets" GroupName="kind" IsCheckedChanged="OnFilterChanged" MinWidth="80" />
+                <RadioButton x:Name="KindParams" Content="Parameters" GroupName="kind" IsCheckedChanged="OnFilterChanged" MinWidth="95" Margin="0,0,8,0" />
+                <ComboBox x:Name="TargetFilter" MinWidth="150" SelectionChanged="OnFilterChanged" Margin="0,0,6,0" DisplayMemberBinding="{Binding Label}" />
+                <ComboBox x:Name="RegionFilter" MinWidth="120" SelectionChanged="OnFilterChanged" />
+            </WrapPanel>
+
+            <Border Classes="panel" Grid.Row="2" Padding="2">
+                <Grid>
+                    <ListBox x:Name="Results" SelectionChanged="OnResultSelected" Background="Transparent" BorderThickness="0"
+                              Foreground="{StaticResource TextNormal}"
+                             >
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,1">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="92" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <Border Classes="badge" HorizontalAlignment="Left">
+                                        <TextBlock Text="{Binding KindLabel}" FontSize="10" Foreground="{StaticResource TextStrong}" />
+                                    </Border>
+                                    <StackPanel Grid.Column="1">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="{Binding Item.Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Foreground="{StaticResource TextStrong}" />
+                                            <Border Classes="badge" Margin="6,0,0,0" Background="#554CB86B"
+                                                    IsVisible="{Binding IsNew}">
+                                                <TextBlock Text="new" FontSize="10" Foreground="{StaticResource TextStrong}" />
+                                            </Border>
+                                        </StackPanel>
+                                        <TextBlock Classes="caption" Text="{Binding Item.Description}" TextTrimming="CharacterEllipsis"
+                                                   IsVisible="{Binding Item.Description, Converter={StaticResource NotEmpty}}" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2" Margin="10,0,0,0">
+                                        <TextBlock Classes="caption" Text="{Binding Location}" HorizontalAlignment="Right" />
+                                        <TextBlock Classes="caption" Text="{Binding Modified}" HorizontalAlignment="Right" />
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                    <TextBlock Classes="body" x:Name="EmptyHint" HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center"
+                               IsVisible="False" TextWrapping="Wrap" MaxWidth="420" />
+                </Grid>
+            </Border>
+
+            <TextBlock Classes="caption" x:Name="StatusText" Grid.Row="3" Margin="2,6,0,0" />
+        </Grid>
+
+        <GridSplitter Grid.Column="1" Width="8" HorizontalAlignment="Stretch" Background="Transparent" />
+
+        <ContentControl x:Name="DetailsHost" Grid.Column="2" />
+    </Grid>
+</UserControl>

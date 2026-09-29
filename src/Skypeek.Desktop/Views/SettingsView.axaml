@@ -1,0 +1,369 @@
+<UserControl x:Class="Skypeek.Desktop.Views.SettingsView"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="using:Skypeek.Desktop.Views">
+    <UserControl.Styles>
+        <Style Selector="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource TextNormal}" />
+            <Setter Property="FontSize" Value="12" />
+        </Style>
+        <Style Selector="TextBlock.field">
+            <Setter Property="Foreground" Value="{StaticResource TextMuted}" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Margin" Value="0,8,0,3" />
+        </Style>
+    </UserControl.Styles>
+    <Grid Margin="0,4,0,0">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TabControl>
+            <!-- ================= Targets ================= -->
+            <TabItem Header="Accounts &amp; regions">
+                <Grid Margin="0,8,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="340" />
+                        <ColumnDefinition Width="16" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <DockPanel>
+                        <Border Classes="panel" DockPanel.Dock="Bottom" Margin="0,10,0,0">
+                            <StackPanel>
+                                <TextBlock Text="Add targets" FontWeight="SemiBold" Foreground="{StaticResource TextStrong}" />
+                                <DockPanel>
+                                    <CheckBox x:Name="NewShowAll" DockPanel.Dock="Right" Content="All profiles" VerticalAlignment="Bottom"
+                                              ToolTip.Tip="Also list profiles whose role is not read-only (e.g. AdministratorAccess)" />
+                                    <TextBlock Classes="field" Text="Read-only profile" />
+                                </DockPanel>
+                                <ComboBox x:Name="NewProfile" SelectionChanged="OnNewProfileChanged">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Text="{Binding Name}" />
+                                                <TextBlock Text="  · SSO" Foreground="{StaticResource TextMuted}"
+                                                           IsVisible="{Binding IsSso}" />
+                                                <TextBlock Text="  ⚠ not a read-only role" Foreground="#FFFFB86B"
+                                                           IsVisible="{Binding !IsReadOnly}" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
+                                <TextBlock Classes="field" Text="Elevated profile (optional, used on demand after approval)" />
+                                <ComboBox x:Name="NewElevated" DisplayMemberBinding="{Binding Label}" />
+                                <TextBlock Classes="field" Text="Regions (select one or more)" />
+                                <ListBox x:Name="NewRegions" SelectionMode="Multiple,Toggle" Height="120" Background="Transparent" Foreground="{StaticResource TextNormal}" />
+                                <views:IconButton Classes="accent" Content="Add selected" Symbol="Add" Margin="0,8,0,0" HorizontalAlignment="Stretch" Click="OnAddTargets" />
+                            </StackPanel>
+                        </Border>
+                        <DockPanel DockPanel.Dock="Top">
+                            <views:IconButton DockPanel.Dock="Right" Content="Remove" Symbol="Delete" Click="OnRemoveTarget" />
+                            <TextBlock Classes="section" Text="Targets" Margin="0,4,0,6" />
+                        </DockPanel>
+                        <ListBox x:Name="TargetList" SelectionChanged="OnTargetSelected" Background="Transparent">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Margin="0,1">
+                                        <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold" Foreground="{StaticResource TextStrong}" />
+                                        <TextBlock Classes="caption">
+                                            <TextBlock.Text>
+                                                <MultiBinding StringFormat="{}{0} · {1}">
+                                                    <Binding Path="ProfileName" />
+                                                    <Binding Path="Region" />
+                                                </MultiBinding>
+                                            </TextBlock.Text>
+                                        </TextBlock>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </DockPanel>
+
+                    <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto">
+                        <StackPanel x:Name="Editor" IsEnabled="False" Margin="0,0,18,0">
+                            <TextBlock Classes="section" Text="Target" Margin="0,4,0,0" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="12" />
+                                    <ColumnDefinition Width="150" />
+                                    <ColumnDefinition Width="12" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <TextBlock Classes="field" Text="Alias" />
+                                    <TextBox x:Name="Alias" PlaceholderText="e.g. US, EU, QA" TextChanged="OnEditorChanged" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Classes="field" Text="Region" />
+                                    <ComboBox x:Name="Region" IsEditable="True" SelectionChanged="OnEditorChanged" LostFocus="OnEditorChanged" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="4">
+                                    <TextBlock Classes="field" Text="Enabled" />
+                                    <ToggleSwitch x:Name="TargetEnabled" IsCheckedChanged="OnEditorChanged" />
+                                </StackPanel>
+                            </Grid>
+
+                            <TextBlock Classes="section" Text="Keys" />
+                            <TextBlock Classes="body" x:Name="ProfileText" TextWrapping="Wrap" />
+                            <TextBlock Classes="field" Text="Elevated profile — used only when you ask (e.g. to read a secret the read-only role cannot), with a permission prompt every time"
+                                       TextWrapping="Wrap" />
+                            <ComboBox x:Name="ElevatedProfile" DisplayMemberBinding="{Binding Label}" SelectionChanged="OnElevatedChanged" MaxWidth="460" HorizontalAlignment="Left" MinWidth="340" />
+                            <CheckBox x:Name="ElevatedForAll" Content="Use the same elevated profile for every target with this read-only profile" Margin="0,6,0,0" IsChecked="True" />
+
+                            <TextBlock Classes="field" Text="Features" />
+                            <WrapPanel>
+                                <CheckBox x:Name="FeatSecrets" Content="Secrets Manager list" Margin="0,0,16,0" IsCheckedChanged="OnEditorChanged" />
+                                <CheckBox x:Name="FeatParams" Content="Parameter Store list" Margin="0,0,16,0" IsCheckedChanged="OnEditorChanged" />
+                                <CheckBox x:Name="FeatEb" Content="Elastic Beanstalk health" Margin="0,0,16,0" IsCheckedChanged="OnEditorChanged" />
+                                <CheckBox x:Name="FeatEcs" Content="ECS health" Margin="0,0,16,0" IsCheckedChanged="OnEditorChanged" />
+                                <CheckBox x:Name="FeatRds" Content="RDS databases" Margin="0,0,16,0" IsCheckedChanged="OnEditorChanged" />
+                                <CheckBox x:Name="FeatCache" Content="ElastiCache (Redis/Valkey)" Margin="0,0,16,0" IsCheckedChanged="OnEditorChanged" />
+                                <CheckBox x:Name="FeatEc2" Content="EC2 instances" Margin="0,0,16,0" IsCheckedChanged="OnEditorChanged" />
+                                <CheckBox x:Name="FeatElb" Content="Load balancers" Margin="0,0,16,0" IsCheckedChanged="OnEditorChanged" />
+                                <CheckBox x:Name="FeatNetwork" Content="Network tab (VPCs, IPs, security groups)" IsCheckedChanged="OnEditorChanged" />
+                            </WrapPanel>
+                            <TextBlock Classes="field" Text="Costs" />
+                            <WrapPanel>
+                                <CheckBox x:Name="FeatCost" Content="Estimated monthly cost (AWS Price List, free)" Margin="0,0,16,0" IsCheckedChanged="OnEditorChanged"
+                                          ToolTip.Tip="On-demand list price × size × 730 hours per resource; prices are cached for a week. Needs pricing:GetProducts." />
+                                <CheckBox x:Name="FeatCostExplorer" Content="Billed cost (Cost Explorer, $0.01 per request, about 2 requests twice a day)" IsCheckedChanged="OnEditorChanged"
+                                          ToolTip.Tip="This and last month by service for the region, and per resource for 14 days if resource-level data is enabled in Billing. Needs ce:GetCostAndUsage and ce:GetCostAndUsageWithResources." />
+                            </WrapPanel>
+
+                            <TextBlock Classes="section" Text="Schedules" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="210" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition />
+                                    <RowDefinition />
+                                    <RowDefinition />
+                                    <RowDefinition />
+                                </Grid.RowDefinitions>
+                                <TextBlock Text="Secrets/parameters list refresh" VerticalAlignment="Center" />
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="0,3">
+                                    <ComboBox x:Name="CatalogInterval" Width="150" DisplayMemberBinding="{Binding Label}" SelectionChanged="OnEditorChanged" />
+                                    <TextBox x:Name="CatalogCustom" Width="130" Margin="8,0,0,0" PlaceholderText="custom minutes" TextChanged="OnEditorChanged" />
+                                </StackPanel>
+                                <TextBlock Grid.Row="1" Text="Health poll (EB, ECS, RDS, cache, EC2, ELB)" VerticalAlignment="Center" TextWrapping="Wrap" />
+                                <ComboBox Grid.Row="1" Grid.Column="1" x:Name="HealthInterval" Width="150" HorizontalAlignment="Left" Margin="0,3" DisplayMemberBinding="{Binding Label}" SelectionChanged="OnEditorChanged" />
+                                <TextBlock Grid.Row="2" Text="Metrics &amp; alarms" VerticalAlignment="Center" />
+                                <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Margin="0,3">
+                                    <ComboBox x:Name="MetricsInterval" Width="150" DisplayMemberBinding="{Binding Label}" SelectionChanged="OnEditorChanged" />
+                                    <TextBlock Classes="caption" x:Name="CostEstimate" VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap" MaxWidth="330" />
+                                </StackPanel>
+                                <TextBlock Grid.Row="3" Text="Network download" VerticalAlignment="Center" />
+                                <ComboBox Grid.Row="3" Grid.Column="1" x:Name="NetworkInterval" Width="150" HorizontalAlignment="Left" Margin="0,3" DisplayMemberBinding="{Binding Label}" SelectionChanged="OnEditorChanged" />
+                            </Grid>
+
+                            <TextBlock Classes="section" Text="Threshold overrides for this target" />
+                            <CheckBox x:Name="OverrideEcs" Content="Override ECS thresholds" IsCheckedChanged="OnEditorChanged" />
+                            <StackPanel x:Name="EcsOverridePanel" Orientation="Horizontal" Margin="24,4,0,8">
+                                <TextBlock Classes="caption" Text="CPU warn/crit" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                <TextBox x:Name="EcsCpuWarn" Width="64" TextChanged="OnEditorChanged" />
+                                <TextBox x:Name="EcsCpuCrit" Width="64" Margin="4,0,16,0" TextChanged="OnEditorChanged" />
+                                <TextBlock Classes="caption" Text="Memory warn/crit" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                <TextBox x:Name="EcsMemWarn" Width="64" TextChanged="OnEditorChanged" />
+                                <TextBox x:Name="EcsMemCrit" Width="64" Margin="4,0,0,0" TextChanged="OnEditorChanged" />
+                            </StackPanel>
+                            <CheckBox x:Name="OverrideEb" Content="Override Elastic Beanstalk / EC2 thresholds" IsCheckedChanged="OnEditorChanged" />
+                            <StackPanel x:Name="EbOverridePanel" Orientation="Horizontal" Margin="24,4,0,8">
+                                <TextBlock Classes="caption" Text="CPU warn/crit" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                <TextBox x:Name="EbCpuWarn" Width="64" TextChanged="OnEditorChanged" />
+                                <TextBox x:Name="EbCpuCrit" Width="64" Margin="4,0,16,0" TextChanged="OnEditorChanged" />
+                                <TextBlock Classes="caption" Text="Memory warn/crit" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                <TextBox x:Name="EbMemWarn" Width="64" TextChanged="OnEditorChanged" />
+                                <TextBox x:Name="EbMemCrit" Width="64" Margin="4,0,0,0" TextChanged="OnEditorChanged" />
+                            </StackPanel>
+                            <TextBlock x:Name="EditorError" Foreground="#FFFF7B7F" TextWrapping="Wrap" IsVisible="False" Margin="0,6,0,0" />
+                        </StackPanel>
+                    </ScrollViewer>
+                </Grid>
+            </TabItem>
+
+            <!-- ================= Alarms ================= -->
+            <TabItem Header="Suppressions &amp; thresholds">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="0,8,18,0">
+                        <TextBlock Classes="section" Text="Suppressed alarms" />
+                        <CheckBox x:Name="IgnoreTargetTracking" Content="Ignore auto-scaling target-tracking alarms (TargetTracking-*)" />
+                        <TextBlock Classes="caption" TextWrapping="Wrap" Margin="24,2,0,8"
+                                   Text="These alarms are created by Application Auto Scaling and stay in ALARM whenever a service is scaled in or out. They drive scaling and are not health problems." />
+                        <TextBlock Classes="caption" TextWrapping="Wrap"
+                                   Text="Suppressed alarms stay visible (greyed out) in the dashboard, but never count as problems, never turn the tray icon red and never notify. Use * and ? wildcards." />
+                        <WrapPanel Margin="0,8,0,6">
+                            <TextBox x:Name="NewPattern" Width="320" PlaceholderText="e.g. *CPUUtilizationLow" FontFamily="{StaticResource MonoFont}" />
+                            <ComboBox x:Name="NewPatternScope" Width="200" Margin="8,0,0,0" DisplayMemberBinding="{Binding Label}" />
+                            <views:IconButton Content="Add" Symbol="Add" Margin="8,0,0,0" Click="OnAddSuppression" />
+                            <Button Content="Remove selected" Margin="8,0,0,0" Click="OnRemoveSuppression" />
+                        </WrapPanel>
+                        <ListBox x:Name="SuppressionList" Height="170" Background="Transparent">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="{Binding Pattern}" Width="360" FontFamily="{StaticResource MonoFont}" Foreground="{StaticResource TextStrong}" />
+                                        <TextBlock Classes="caption" Text="{Binding Scope}" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+
+                        <DockPanel Margin="0,14,0,0">
+                            <Button DockPanel.Dock="Right" Content="Remove selected" Click="OnRemoveCauseSuppression" VerticalAlignment="Bottom" />
+                            <TextBlock Classes="section" Text="Suppressed Elastic Beanstalk health causes (add them from the dashboard)" />
+                        </DockPanel>
+                        <ListBox x:Name="CauseSuppressionList" Height="140" Background="Transparent">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Pattern}" FontFamily="{StaticResource MonoFont}" Foreground="{StaticResource TextStrong}" TextWrapping="Wrap" MaxWidth="760" />
+                                        <TextBlock Classes="caption" Text="{Binding Scope}" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+
+                        <TextBlock Classes="section" Text="Default thresholds (percent)" Margin="0,16,0,4" />
+                        <Grid HorizontalAlignment="Left">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="160" />
+                                <ColumnDefinition Width="84" />
+                                <ColumnDefinition Width="84" />
+                                <ColumnDefinition Width="20" />
+                                <ColumnDefinition Width="84" />
+                                <ColumnDefinition Width="84" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition />
+                                <RowDefinition />
+                                <RowDefinition />
+                                <RowDefinition />
+                                <RowDefinition />
+                                <RowDefinition />
+                                <RowDefinition />
+                            </Grid.RowDefinitions>
+                            <TextBlock Classes="caption" Grid.Column="1" Text="CPU warn" />
+                            <TextBlock Classes="caption" Grid.Column="2" Text="CPU crit" />
+                            <TextBlock Classes="caption" Grid.Column="4" Text="Mem warn" />
+                            <TextBlock Classes="caption" Grid.Column="5" Text="Mem crit" />
+                            <TextBlock Grid.Row="1" Text="ECS services" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="1" Grid.Column="1" x:Name="GEcsCpuWarn" Margin="0,3,6,3" />
+                            <TextBox Grid.Row="1" Grid.Column="2" x:Name="GEcsCpuCrit" Margin="0,3,6,3" />
+                            <TextBox Grid.Row="1" Grid.Column="4" x:Name="GEcsMemWarn" Margin="0,3,6,3" />
+                            <TextBox Grid.Row="1" Grid.Column="5" x:Name="GEcsMemCrit" Margin="0,3,6,3" />
+                            <TextBlock Grid.Row="2" Text="EB (EC2 instances)" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="2" Grid.Column="1" x:Name="GEbCpuWarn" Margin="0,3,6,3" />
+                            <TextBox Grid.Row="2" Grid.Column="2" x:Name="GEbCpuCrit" Margin="0,3,6,3" />
+                            <TextBox Grid.Row="2" Grid.Column="4" x:Name="GEbMemWarn" Margin="0,3,6,3" />
+                            <TextBox Grid.Row="2" Grid.Column="5" x:Name="GEbMemCrit" Margin="0,3,6,3" />
+                            <TextBlock Grid.Row="3" Text="RDS (mem = connections % of max)" VerticalAlignment="Center" TextWrapping="Wrap" />
+                            <TextBox Grid.Row="3" Grid.Column="1" x:Name="GRdsCpuWarn" Margin="0,3,6,3" />
+                            <TextBox Grid.Row="3" Grid.Column="2" x:Name="GRdsCpuCrit" Margin="0,3,6,3" />
+                            <TextBox Grid.Row="3" Grid.Column="4" x:Name="GRdsConnWarn" Margin="0,3,6,3" />
+                            <TextBox Grid.Row="3" Grid.Column="5" x:Name="GRdsConnCrit" Margin="0,3,6,3" />
+                            <TextBlock Grid.Row="4" Text="RDS storage used" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="4" Grid.Column="1" x:Name="GRdsStorageWarn" Margin="0,3,6,3" />
+                            <TextBox Grid.Row="4" Grid.Column="2" x:Name="GRdsStorageCrit" Margin="0,3,6,3" />
+                            <TextBlock Grid.Row="5" Text="ElastiCache (engine CPU)" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="5" Grid.Column="1" x:Name="GCacheCpuWarn" Margin="0,3,6,3" />
+                            <TextBox Grid.Row="5" Grid.Column="2" x:Name="GCacheCpuCrit" Margin="0,3,6,3" />
+                            <TextBox Grid.Row="5" Grid.Column="4" x:Name="GCacheMemWarn" Margin="0,3,6,3" />
+                            <TextBox Grid.Row="5" Grid.Column="5" x:Name="GCacheMemCrit" Margin="0,3,6,3" />
+                            <TextBlock Grid.Row="6" Text="EC2 instances (standalone)" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="6" Grid.Column="1" x:Name="GEc2CpuWarn" Margin="0,3,6,3" />
+                            <TextBox Grid.Row="6" Grid.Column="2" x:Name="GEc2CpuCrit" Margin="0,3,6,3" />
+                            <TextBox Grid.Row="6" Grid.Column="4" x:Name="GEc2MemWarn" Margin="0,3,6,3" />
+                            <TextBox Grid.Row="6" Grid.Column="5" x:Name="GEc2MemCrit" Margin="0,3,6,3" />
+                        </Grid>
+                        <TextBlock Classes="caption" TextWrapping="Wrap" Margin="0,4,0,0"
+                                   Text="EC2 memory needs the CloudWatch agent (CWAgent mem_used_percent); otherwise it shows n/a. RDS max_connections comes from the parameter group, or is estimated from the engine default and instance size; when unknown, connections are shown but not evaluated." />
+
+                        <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                            <StackPanel Margin="0,0,24,0">
+                                <TextBlock Classes="field" Text="Sustained minutes before a breach counts" />
+                                <TextBox x:Name="SustainedMinutes" Width="110" HorizontalAlignment="Left" />
+                            </StackPanel>
+                            <StackPanel>
+                                <TextBlock Classes="field" Text="Show alarms that fired within (hours)" />
+                                <TextBox x:Name="AlarmHours" Width="110" HorizontalAlignment="Left" />
+                            </StackPanel>
+                        </StackPanel>
+
+                        <DockPanel Margin="0,14,0,0">
+                            <Button DockPanel.Dock="Right" Content="Remove selected" Click="OnRemoveOverride" VerticalAlignment="Bottom" />
+                            <TextBlock Classes="section" Text="Per-service / per-environment overrides (set from the dashboard)" />
+                        </DockPanel>
+                        <ListBox x:Name="OverrideList" Height="150" Background="Transparent">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="{Binding Label}" Width="380" Foreground="{StaticResource TextStrong}" />
+                                        <TextBlock Classes="caption" Text="{Binding Values}" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- ================= General ================= -->
+            <TabItem Header="General">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="0,8,0,0" MaxWidth="640" HorizontalAlignment="Left">
+                        <TextBlock Classes="field" Text="Global hotkey (press the combination in the box)" />
+                        <StackPanel Orientation="Horizontal">
+                            <TextBox x:Name="HotkeyBox" Width="220" IsReadOnly="True" />
+                            <TextBlock Classes="caption" x:Name="HotkeyStatus" VerticalAlignment="Center" Margin="12,0,0,0" />
+                        </StackPanel>
+                        <TextBlock Classes="caption" Margin="0,4,0,0" TextWrapping="Wrap"
+                                   Text="Free on this machine when checked: Win+Alt+A (default), Ctrl+Alt+Shift+A, Win+Alt+Q. Avoid Ctrl+Shift+letter (IDE/browser shortcuts)." />
+
+                        <ToggleSwitch x:Name="RunOnStartup" Content="Start with Windows (in the tray)" Margin="0,14,0,0" />
+
+                        <TextBlock Classes="field" Text="Lock the UI after this many idle minutes (0 = never). Background refresh keeps running." TextWrapping="Wrap" />
+                        <TextBox x:Name="LockoutMinutes" Width="110" HorizontalAlignment="Left" />
+                        <CheckBox x:Name="LockOnWindowsLock" Content="Also lock when Windows is locked (Win+L)" Margin="0,8,0,0" />
+
+                        <CheckBox x:Name="WarningsRed" Content="Warning-level problems also turn the tray icon red" Margin="0,14,0,0" />
+
+                        <TextBlock Classes="field" Text="Request log retention (days)" />
+                        <TextBox x:Name="RetentionDays" Width="110" HorizontalAlignment="Left" />
+
+                        <CheckBox x:Name="ShowNonReadOnly" Content="Allow non-read-only profiles as the read-only key" Margin="0,14,0,0" />
+                        <TextBlock Classes="caption" TextWrapping="Wrap" Margin="24,2,0,0"
+                                   Text="Background refresh would then run with admin credentials. Prefer a ReadOnly profile plus an elevated profile used on demand." />
+
+                        <TextBlock Classes="caption" x:Name="CredentialsPath" Margin="0,18,0,0" TextWrapping="Wrap" />
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- ================= Security ================= -->
+            <TabItem Header="Security">
+                <StackPanel Margin="0,8,0,0" MaxWidth="400" HorizontalAlignment="Left">
+                    <TextBlock Classes="section" Text="Change master password" />
+                    <TextBlock Classes="field" Text="Current password" />
+                    <TextBox PasswordChar="•" RevealPassword="False" x:Name="CurrentPassword" />
+                    <TextBlock Classes="field" Text="New password (8+ characters)" />
+                    <TextBox PasswordChar="•" RevealPassword="False" x:Name="NewPassword" />
+                    <TextBlock Classes="field" Text="Confirm new password" />
+                    <TextBox PasswordChar="•" RevealPassword="False" x:Name="ConfirmPassword" />
+                    <Button Content="Change password" Margin="0,10,0,0" Click="OnChangePassword" />
+                    <TextBlock x:Name="PasswordStatus" TextWrapping="Wrap" Margin="0,8,0,0" />
+                    <TextBlock Classes="caption" x:Name="VaultPath" TextWrapping="Wrap" Margin="0,18,0,0" />
+                </StackPanel>
+            </TabItem>
+        </TabControl>
+
+        <Grid Grid.Row="1" Margin="0,8,0,0">
+            <TextBlock x:Name="SaveStatus" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="700" HorizontalAlignment="Left" />
+            <Button Classes="accent" Content="Save" MinWidth="100" HorizontalAlignment="Right" Click="OnSave" />
+        </Grid>
+    </Grid>
+</UserControl>

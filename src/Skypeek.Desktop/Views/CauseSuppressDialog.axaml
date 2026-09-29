@@ -1,0 +1,26 @@
+<views:DialogWindow x:Class="Skypeek.Desktop.Views.CauseSuppressDialog"
+                 xmlns="https://github.com/avaloniaui"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 Title="Suppress health cause" Width="560" SizeToContent="Height" CanResize="False" FontSize="12"
+                 WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        xmlns:views="using:Skypeek.Desktop.Views">
+    <StackPanel>
+        <StackPanel Margin="18,2,18,18">
+            <TextBlock Classes="body" TextWrapping="Wrap"
+                       Text="A suppressed cause stays visible (greyed out) but no longer makes the environment or load balancer unhealthy. If every cause is suppressed, it counts as OK unless something else is wrong (failed deploy, error events, thresholds, alarms)." />
+            <TextBlock Classes="caption" Text="Cause text or pattern (* and ? wildcards; spacing and line breaks are ignored)" Margin="0,12,0,4" />
+            <TextBox x:Name="Pattern" FontFamily="{StaticResource MonoFont}" TextWrapping="Wrap" AcceptsReturn="False" MinHeight="54" />
+            <TextBlock Classes="caption" TextWrapping="Wrap" Margin="0,4,0,0"
+                       Text="Tip: replace the changing part with *, e.g. One or more TargetGroups * reduced health state:*" />
+            <TextBlock Classes="caption" Text="Scope" Margin="0,12,0,4" />
+            <RadioButton x:Name="ThisEnv" GroupName="scope" IsChecked="True" />
+            <RadioButton x:Name="ThisTarget" GroupName="scope" />
+            <RadioButton x:Name="AllTargets" GroupName="scope" Content="All targets" />
+            <TextBlock x:Name="Error" Foreground="#FFFF7B7F" IsVisible="False" Margin="0,8,0,0" TextWrapping="Wrap" />
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+                <Button Content="Cancel" Margin="0,0,8,0" IsCancel="True" Click="OnCancel" />
+                <Button Classes="accent" Content="Suppress" IsDefault="True" Click="OnSave" />
+            </StackPanel>
+        </StackPanel>
+    </StackPanel>
+</views:DialogWindow>

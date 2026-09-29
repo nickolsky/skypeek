@@ -1,0 +1,48 @@
+<UserControl x:Class="Skypeek.Desktop.Views.UsagePanel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="using:Skypeek.Desktop.Views">
+    <Border Classes="panel" Margin="0,8,0,8">
+        <StackPanel>
+            <DockPanel>
+                <views:IconButton x:Name="AnalyzeButton" DockPanel.Dock="Right" Content="Analyze last 30 days" Symbol="DataHistogram"
+                           Padding="8,2" Click="OnAnalyze" VerticalAlignment="Top" />
+                <TextBlock Classes="section" Text="Usage (last 30 days)" Margin="0,0,0,2" />
+            </DockPanel>
+            <TextBlock Classes="caption" x:Name="StatusText" TextWrapping="Wrap"
+                       Text="Reads hourly CPU and memory history from CloudWatch: average, min, max, how often it hits 100%, and whether it looks under- or over-provisioned." />
+
+            <StackPanel x:Name="ResultPanel" IsVisible="False" Margin="0,6,0,0">
+                <Border Classes="badge" x:Name="VerdictBadge" HorizontalAlignment="Left" Padding="8,2">
+                    <TextBlock x:Name="VerdictText" FontWeight="SemiBold" Foreground="{StaticResource TextStrong}" />
+                </Border>
+                <TextBlock Classes="body" x:Name="ReasonsText" TextWrapping="Wrap" Margin="0,4,0,8" />
+                <ItemsControl x:Name="SeriesList">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Margin="0,2,0,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="170" />
+                                    <ColumnDefinition Width="92" />
+                                    <ColumnDefinition Width="78" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition />
+                                    <RowDefinition />
+                                </Grid.RowDefinitions>
+                                <TextBlock Classes="body" Text="{Binding Scope}" FontFamily="{StaticResource MonoFont}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Scope}" />
+                                <TextBlock Classes="body" Grid.Column="1" Text="{Binding Label}" />
+                                <views:UsageBar Grid.Column="2" Percent="{Binding P95}" Level="{Binding Level}" Width="64" Height="6" HorizontalAlignment="Left"
+                                                ToolTip.Tip="p95 of hourly averages" />
+                                <TextBlock Classes="body" Grid.Column="3" Text="{Binding StatsText}" TextWrapping="Wrap" />
+                                <TextBlock Classes="caption" Grid.Row="1" Grid.Column="3" Text="{Binding PeaksText}" TextWrapping="Wrap" />
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock Classes="caption" x:Name="RangeText" TextWrapping="Wrap" Margin="0,4,0,0" />
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</UserControl>

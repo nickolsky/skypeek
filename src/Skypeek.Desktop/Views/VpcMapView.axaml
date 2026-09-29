@@ -1,0 +1,72 @@
+<UserControl x:Class="Skypeek.Desktop.Views.VpcMapView"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="using:Skypeek.Desktop.Views">
+    <UserControl.Styles>
+        <Style Selector="Border.box">
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="BorderBrush" Value="{StaticResource PanelBorder}" />
+            <Setter Property="Background" Value="#1FFFFFFF" />
+        </Style>
+        <Style Selector="Border.box.highlighted">
+            <Setter Property="BorderBrush" Value="#FF60CDFF" />
+            <Setter Property="Background" Value="#3360CDFF" />
+        </Style>
+        <Style Selector="Border.box.dimmed">
+            <Setter Property="Opacity" Value="0.35" />
+        </Style>
+    </UserControl.Styles>
+    <UserControl.Resources>
+        <views:StripeBrushConverter x:Key="StripeBrush" />
+        <!-- One box; the stripe colour says what kind of subnet or connection it is. -->
+        <DataTemplate x:Key="BoxTemplate">
+            <Border Classes="box" Classes.highlighted="{Binding IsHighlighted}" Classes.dimmed="{Binding IsDimmed}"
+                    Margin="0,0,0,6" Padding="0" Cursor="Hand" PointerReleased="OnBoxClick" Tag="{Binding}">
+                <DockPanel>
+                    <Border DockPanel.Dock="Left" Width="4" CornerRadius="4,0,0,4" Background="{Binding Kind, Converter={StaticResource StripeBrush}}" />
+                    <StackPanel Margin="8,4,6,5">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="⚠ " Foreground="#FFFFB86B" IsVisible="{Binding HasWarning}" ToolTip.Tip="{Binding Warning}" />
+                            <TextBlock Text="{Binding Title}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextStrong}" TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                        <TextBlock Classes="caption" Text="{Binding Subtitle}" FontSize="10.5" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Subtitle}" />
+                    </StackPanel>
+                </DockPanel>
+            </Border>
+        </DataTemplate>
+    </UserControl.Resources>
+
+    <StackPanel>
+        <Grid x:Name="Board">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="28" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="28" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <TextBlock Classes="caption" x:Name="SubnetHeader" Text="Subnets" FontWeight="SemiBold" Margin="0,0,0,4" />
+            <TextBlock Classes="caption" Grid.Column="2" Text="Route tables" FontWeight="SemiBold" Margin="0,0,0,4" />
+            <TextBlock Classes="caption" Grid.Column="4" Text="Network connections" FontWeight="SemiBold" Margin="0,0,0,4" />
+            <!-- Lines behind the boxes. -->
+            <Canvas x:Name="Lines" Grid.Row="1" Grid.ColumnSpan="5" IsHitTestVisible="False" />
+            <ItemsControl x:Name="SubnetList" Grid.Row="1" ItemsSource="{Binding Subnets}" ItemTemplate="{StaticResource BoxTemplate}" />
+            <ItemsControl x:Name="TableList" Grid.Row="1" Grid.Column="2" ItemsSource="{Binding RouteTables}" ItemTemplate="{StaticResource BoxTemplate}" />
+            <ItemsControl x:Name="ConnectionList" Grid.Row="1" Grid.Column="4" ItemsSource="{Binding Connections}" ItemTemplate="{StaticResource BoxTemplate}" />
+        </Grid>
+        <Border Classes="panel" Margin="0,6,0,0" Padding="10,6"
+                IsVisible="{Binding Selected, Converter={StaticResource NotEmpty}}">
+            <StackPanel>
+                <TextBlock Classes="body" Text="{Binding Selected.Detail}" FontFamily="{StaticResource MonoFont}" TextWrapping="Wrap" />
+                <TextBlock Text="{Binding Selected.Warning}" Foreground="#FFFFB86B" TextWrapping="Wrap" Margin="0,4,0,0"
+                           IsVisible="{Binding Selected.Warning, Converter={StaticResource NotEmpty}}" />
+            </StackPanel>
+        </Border>
+        <TextBlock Classes="caption" Text="{Binding Legend}" TextWrapping="Wrap" Margin="0,6,0,0" />
+    </StackPanel>
+</UserControl>

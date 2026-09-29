@@ -1,0 +1,403 @@
+<UserControl x:Class="Skypeek.Desktop.Views.NetworkView"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="using:Skypeek.Desktop.Views">
+
+    <UserControl.Styles>
+        <!-- Tree rows: strong for targets and groups, highlighted for search matches. -->
+        <Style Selector="TextBlock.title">
+            <Setter Property="Foreground" Value="{StaticResource TextStrong}" />
+        </Style>
+        <Style Selector="TextBlock.title.strong">
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="TextBlock.title.match">
+            <Setter Property="Foreground" Value="#FF60CDFF" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="TextBlock.open">
+            <Setter Property="Foreground" Value="#FFFFB86B" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="TreeViewItem">
+            <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+            <Setter Property="Foreground" Value="{StaticResource TextNormal}" />
+            <Setter Property="MinHeight" Value="26" />
+        </Style>
+    </UserControl.Styles>
+    <UserControl.Resources>
+
+        <!-- Security group chips (id + name) that select the group in the tree. -->
+        <DataTemplate x:Key="GroupChips">
+            <ItemsControl ItemsSource="{Binding}">
+                <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Button Padding="6,1" Margin="0,0,6,4" Click="OnSelectGroup" Tag="{Binding Id}">
+                            <TextBlock>
+                                <TextBlock.Text>
+                                    <MultiBinding StringFormat="{}{0} · {1}">
+                                        <Binding Path="Name" />
+                                        <Binding Path="Id" />
+                                    </MultiBinding>
+                                </TextBlock.Text>
+                            </TextBlock>
+                        </Button>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </DataTemplate>
+
+        <!-- Rule table for one direction. -->
+        <DataTemplate x:Key="RuleRows">
+            <ItemsControl ItemsSource="{Binding}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border BorderBrush="{StaticResource PanelBorder}" BorderThickness="0,0,0,1" Padding="0,4">
+                            <DockPanel>
+                                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top">
+                                    <Button Content="Edit…" Padding="6,1" Margin="0,0,6,0" Click="OnEditRule" Tag="{Binding Rule}" />
+                                    <Button Classes="danger" Content="Delete…" Padding="6,1" Click="OnDeleteRule" Tag="{Binding Rule}" />
+                                </StackPanel>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="90" />
+                                        <ColumnDefinition Width="100" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition />
+                                        <RowDefinition />
+                                    </Grid.RowDefinitions>
+                                    <TextBlock Classes="body" Text="{Binding Rule.ProtocolText}" />
+                                    <TextBlock Classes="body" Grid.Column="1" Text="{Binding Rule.PortText}" />
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal">
+                                        <TextBlock Classes="body" Classes.open="{Binding Rule.IsOpenToWorld}" Text="{Binding SourceText}" FontFamily="{StaticResource MonoFont}" TextWrapping="Wrap" />
+                                        <Button Content="Go" Padding="4,0" Margin="6,0,0,0" FontSize="10" Click="OnSelectGroup" Tag="{Binding Rule.ReferencedGroupId}"
+                                                   IsVisible="{Binding IsGroupSource}" ToolTip.Tip="Open the referenced security group" />
+                                    </StackPanel>
+                                    <TextBlock Classes="caption" Grid.Row="1" Grid.ColumnSpan="3" TextWrapping="Wrap">
+                                        <TextBlock.Text>
+                                            <MultiBinding StringFormat="{}{0} · {1}">
+                                                <Binding Path="Rule.RuleId" />
+                                                <Binding Path="Rule.Description" TargetNullValue="no description" />
+                                            </MultiBinding>
+                                        </TextBlock.Text>
+                                    </TextBlock>
+                                </Grid>
+                            </DockPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </DataTemplate>
+
+        <!-- ============ details templates ============ -->
+    </UserControl.Resources>
+    <UserControl.DataTemplates>
+        <DataTemplate DataType="views:MessageDetail">
+            <TextBlock Classes="body" Text="{Binding Text}" TextWrapping="Wrap" />
+        </DataTemplate>
+        <DataTemplate DataType="views:NetworkTargetDetail">
+            <StackPanel>
+                <TextBlock Text="{Binding Target.DisplayName}" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource TextStrong}" />
+                <TextBlock Classes="caption" Text="{Binding Target.Region}" Margin="0,0,0,8" />
+                <WrapPanel Margin="0,0,0,8">
+                    <views:IconButton Classes="accent" Content="Download now" Symbol="ArrowDownload" Click="OnDownloadTarget" Tag="{Binding Target.Id}" Margin="0,0,6,4" />
+                </WrapPanel>
+                <TextBlock Classes="body" Text="{Binding Status}" TextWrapping="Wrap" />
+                <TextBlock Classes="body" Text="{Binding Summary}" TextWrapping="Wrap" Margin="0,4,0,0" />
+                <TextBlock Classes="caption" TextWrapping="Wrap" Margin="0,8,0,0"
+                           Text="The network inventory is downloaded on its own schedule (Settings → Accounts &amp; regions) and cached in the vault, so this tab opens instantly. Searching finds IP addresses, interface and group ids, names and rule sources." />
+            </StackPanel>
+        </DataTemplate>
+        <DataTemplate DataType="views:VpcDetail">
+            <StackPanel>
+                <TextBlock Text="{Binding Vpc.Title}" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource TextStrong}" />
+                <TextBlock Classes="caption" Text="{Binding Target.DisplayName, StringFormat='VPC · {0}'}" Margin="0,0,0,6" />
+                <WrapPanel Margin="0,0,0,6">
+                    <views:IconButton Content="Open in console" Symbol="Open" Click="OnOpenConsole" Margin="0,0,6,4" />
+                    <views:IconButton Content="Copy ID" Symbol="Copy" Click="OnCopyText" Tag="{Binding Vpc.Id}" Margin="0,0,6,4" />
+                </WrapPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="ID" /><TextBlock Classes="value" Text="{Binding Vpc.Id}" FontFamily="{StaticResource MonoFont}" /></StackPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="CIDR" /><TextBlock Classes="value" Text="{Binding CidrText}" FontFamily="{StaticResource MonoFont}" MaxWidth="520" /></StackPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="State" /><TextBlock Classes="value" Text="{Binding Vpc.State}" /></StackPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="Default VPC" /><TextBlock Classes="value" Text="{Binding Vpc.IsDefault}" /></StackPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="Contains" />
+                    <TextBlock Classes="value"><TextBlock.Text><MultiBinding StringFormat="{}{0} subnet(s) · {1} interface(s) · {2} security group(s)"><Binding Path="Subnets" /><Binding Path="Interfaces" /><Binding Path="Groups" /></MultiBinding></TextBlock.Text></TextBlock></StackPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="Internet" /><TextBlock Classes="value" Text="{Binding AccessSummary}" MaxWidth="520" /></StackPanel>
+                <TextBlock Classes="section" Text="Resource map" />
+                <views:VpcMapView DataContext="{Binding Map}" />
+            </StackPanel>
+        </DataTemplate>
+        <DataTemplate DataType="views:SubnetDetail">
+            <StackPanel>
+                <TextBlock Text="{Binding Subnet.Title}" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource TextStrong}" />
+                <TextBlock Classes="caption" Margin="0,0,0,6">
+                    <TextBlock.Text>
+                        <MultiBinding StringFormat="{}Subnet · {0} · {1}">
+                            <Binding Path="Subnet.VpcId" />
+                            <Binding Path="Target.DisplayName" />
+                        </MultiBinding>
+                    </TextBlock.Text>
+                </TextBlock>
+                <WrapPanel Margin="0,0,0,6">
+                    <views:IconButton Content="Open in console" Symbol="Open" Click="OnOpenConsole" Margin="0,0,6,4" />
+                    <views:IconButton Content="Copy ID" Symbol="Copy" Click="OnCopyText" Tag="{Binding Subnet.Id}" Margin="0,0,6,4" />
+                    <views:IconButton Content="Copy CIDR" Symbol="Copy" Click="OnCopyText" Tag="{Binding Subnet.Cidr}" Margin="0,0,6,4" />
+                </WrapPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="CIDR" /><TextBlock Classes="value" Text="{Binding Subnet.Cidr}" FontFamily="{StaticResource MonoFont}" /></StackPanel>
+                <StackPanel Orientation="Horizontal" IsVisible="{Binding Subnet.Ipv6Cidrs.Count, Converter={StaticResource HasItems}}">
+                    <TextBlock Classes="label" Text="IPv6" />
+                    <ItemsControl ItemsSource="{Binding Subnet.Ipv6Cidrs}"><ItemsControl.ItemTemplate><DataTemplate><TextBlock Classes="value" Text="{Binding}" FontFamily="{StaticResource MonoFont}" /></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="Zone" /><TextBlock Classes="value" Text="{Binding Subnet.AvailabilityZone}" /></StackPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="Kind" />
+                    <TextBlock Classes="value" Text="{Binding Subnet.KindDetail}" MaxWidth="520" /></StackPanel>
+                <Border Classes="panel" Margin="0,6,0,6">
+                    <StackPanel>
+                        <TextBlock Classes="section" Text="Internet access" Margin="0,0,0,2" />
+                        <TextBlock Classes="body" Text="{Binding AccessText}" TextWrapping="Wrap" />
+                        <TextBlock Classes="body" Text="{Binding Routing.Ipv6Summary}" TextWrapping="Wrap"
+                                   IsVisible="{Binding Routing.Ipv6Summary, Converter={StaticResource NotEmpty}}" />
+                        <TextBlock Text="{Binding Routing.Warning}" Foreground="#FFFFB86B" TextWrapping="Wrap" Margin="0,4,0,0"
+                                   IsVisible="{Binding Routing.Warning, Converter={StaticResource NotEmpty}}" />
+                        <TextBlock Classes="caption" Text="{Binding Routing.Note}" TextWrapping="Wrap" Margin="0,4,0,0"
+                                   IsVisible="{Binding Routing.Note, Converter={StaticResource NotEmpty}}" />
+                        <TextBlock Classes="caption" Text="{Binding RouteTableText, StringFormat='Route table: {0}'}" Margin="0,6,0,2" />
+                        <ItemsControl ItemsSource="{Binding Routes}">
+                            <ItemsControl.ItemTemplate><DataTemplate><TextBlock Classes="body" Text="{Binding}" FontFamily="{StaticResource MonoFont}" TextWrapping="Wrap" /></DataTemplate></ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+                <StackPanel Orientation="Horizontal" Margin="0,4,0,0"><TextBlock Classes="label" Text="Addresses" VerticalAlignment="Center" />
+                    <views:UsageBar Percent="{Binding Subnet.UsedPercent}" Level="{Binding Subnet.UsageLevel}" Width="90" Height="8" Margin="0,0,8,0" />
+                    <TextBlock Classes="value" Text="{Binding Subnet.UsageText}" VerticalAlignment="Center" /></StackPanel>
+
+                <TextBlock Classes="section" Text="IP addresses in use" />
+                <ItemsControl ItemsSource="{Binding Interfaces}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Margin="0,1">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="120" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Classes="body" Text="{Binding PrivateIp}" FontFamily="{StaticResource MonoFont}" />
+                                <TextBlock Classes="caption" Grid.Column="1" TextWrapping="Wrap">
+                                    <TextBlock.Text>
+                                        <MultiBinding StringFormat="{}{0} · {1} · {2}">
+                                            <Binding Path="Owner" />
+                                            <Binding Path="Id" />
+                                            <Binding Path="AddressText" />
+                                        </MultiBinding>
+                                    </TextBlock.Text>
+                                </TextBlock>
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </DataTemplate>
+        <DataTemplate DataType="views:InterfaceDetail">
+            <StackPanel>
+                <TextBlock Text="{Binding Interface.PrivateIp}" FontSize="16" FontWeight="SemiBold" FontFamily="{StaticResource MonoFont}" Foreground="{StaticResource TextStrong}" />
+                <TextBlock Classes="caption" Margin="0,0,0,6" TextWrapping="Wrap">
+                    <TextBlock.Text>
+                        <MultiBinding StringFormat="{}Network interface {0} · {1} · {2}">
+                            <Binding Path="Interface.Id" />
+                            <Binding Path="Interface.Owner" />
+                            <Binding Path="Target.DisplayName" />
+                        </MultiBinding>
+                    </TextBlock.Text>
+                </TextBlock>
+                <WrapPanel Margin="0,0,0,6">
+                    <views:IconButton Classes="accent" Content="Show instance on dashboard" Symbol="Board" Click="OnShowInstance" Tag="{Binding Interface.InstanceId}" Margin="0,0,6,4"
+                               IsVisible="{Binding HasInstance}" />
+                    <views:IconButton Content="Open in console" Symbol="Open" Click="OnOpenConsole" Margin="0,0,6,4" />
+                    <views:IconButton Content="Copy IP" Symbol="Copy" Click="OnCopyText" Tag="{Binding Interface.PrivateIp}" Margin="0,0,6,4" />
+                </WrapPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="Used by" /><TextBlock Classes="value" Text="{Binding Interface.Owner}" MaxWidth="520" /></StackPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="Addresses" /><TextBlock Classes="value" Text="{Binding Interface.AddressText}" FontFamily="{StaticResource MonoFont}" MaxWidth="520" /></StackPanel>
+                <StackPanel Orientation="Horizontal" IsVisible="{Binding ElasticIp, Converter={StaticResource NotEmpty}}">
+                    <TextBlock Classes="label" Text="Elastic IP" /><TextBlock Classes="value" Text="{Binding ElasticIp.PublicIp}" FontFamily="{StaticResource MonoFont}" /></StackPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="Subnet" />
+                    <TextBlock Classes="value" MaxWidth="520"><TextBlock.Text><MultiBinding StringFormat="{}{0} ({1}, {2})"><Binding Path="Interface.SubnetId" /><Binding Path="Subnet.Cidr" FallbackValue="?" /><Binding Path="Interface.AvailabilityZone" /></MultiBinding></TextBlock.Text></TextBlock></StackPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="Type / status" />
+                    <TextBlock Classes="value"><TextBlock.Text><MultiBinding StringFormat="{}{0} · {1}"><Binding Path="Interface.InterfaceType" /><Binding Path="Interface.Status" /></MultiBinding></TextBlock.Text></TextBlock></StackPanel>
+                <StackPanel Orientation="Horizontal" IsVisible="{Binding Interface.Description, Converter={StaticResource NotEmpty}}">
+                    <TextBlock Classes="label" Text="Description" /><TextBlock Classes="value" Text="{Binding Interface.Description}" MaxWidth="520" /></StackPanel>
+                <TextBlock Classes="section" Text="Security groups" />
+                <ContentControl Content="{Binding Interface.SecurityGroups}" ContentTemplate="{StaticResource GroupChips}" />
+            </StackPanel>
+        </DataTemplate>
+        <DataTemplate DataType="views:GatewayDetail">
+            <StackPanel>
+                <TextBlock Text="{Binding Title}" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource TextStrong}" />
+                <TextBlock Classes="caption" Margin="0,0,0,6">
+                    <TextBlock.Text>
+                        <MultiBinding StringFormat="{}{0} · {1}">
+                            <Binding Path="Kind" />
+                            <Binding Path="Target.DisplayName" />
+                        </MultiBinding>
+                    </TextBlock.Text>
+                </TextBlock>
+                <WrapPanel Margin="0,0,0,6">
+                    <views:IconButton Content="Open in console" Symbol="Open" Click="OnOpenConsole" Margin="0,0,6,4" />
+                    <views:IconButton Content="Copy ID" Symbol="Copy" Click="OnCopyText" Tag="{Binding Id}" Margin="0,0,6,4" />
+                </WrapPanel>
+                <ItemsControl ItemsSource="{Binding Fields}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="{Binding Key}" /><TextBlock Classes="value" Text="{Binding Value}" MaxWidth="520" /></StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock Classes="body" Text="{Binding UsedByText}" TextWrapping="Wrap" Margin="0,8,0,0" />
+            </StackPanel>
+        </DataTemplate>
+        <DataTemplate DataType="views:ElasticIpDetail">
+            <StackPanel>
+                <TextBlock Text="{Binding Address.PublicIp}" FontSize="16" FontWeight="SemiBold" FontFamily="{StaticResource MonoFont}" Foreground="{StaticResource TextStrong}" />
+                <TextBlock Classes="caption" Text="{Binding Target.DisplayName, StringFormat='Elastic IP · {0}'}" Margin="0,0,0,6" />
+                <WrapPanel Margin="0,0,0,6">
+                    <views:IconButton Content="Copy IP" Symbol="Copy" Click="OnCopyText" Tag="{Binding Address.PublicIp}" Margin="0,0,6,4" />
+                </WrapPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="Name" /><TextBlock Classes="value" Text="{Binding Address.Name, TargetNullValue='—'}" /></StackPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="Allocation" /><TextBlock Classes="value" Text="{Binding Address.AllocationId}" FontFamily="{StaticResource MonoFont}" /></StackPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="Attached to" /><TextBlock Classes="value" Text="{Binding AttachedText}" MaxWidth="520" /></StackPanel>
+            </StackPanel>
+        </DataTemplate>
+        <DataTemplate DataType="views:SecurityGroupDetail">
+            <StackPanel>
+                <TextBlock Text="{Binding Group.Title}" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource TextStrong}" TextWrapping="Wrap" />
+                <TextBlock Classes="caption" Text="{Binding Summary}" Margin="0,0,0,6" TextWrapping="Wrap" />
+                <WrapPanel Margin="0,0,0,6">
+                    <views:IconButton Content="Refresh group" Symbol="ArrowClockwise" Click="OnRefreshGroup" Margin="0,0,6,4"
+                               ToolTip.Tip="Re-read this group and its rules from AWS now" />
+                    <views:IconButton Content="Open in console" Symbol="Open" Click="OnOpenConsole" Margin="0,0,6,4" />
+                    <views:IconButton Content="Copy ID" Symbol="Copy" Click="OnCopyText" Tag="{Binding Group.Id}" Margin="0,0,6,4" />
+                </WrapPanel>
+                <TextBlock Classes="body" Text="{Binding Group.Description}" TextWrapping="Wrap" Margin="0,0,0,6" IsVisible="{Binding Group.Description, Converter={StaticResource NotEmpty}}" />
+
+                <DockPanel Margin="0,8,0,2">
+                    <views:IconButton DockPanel.Dock="Right" Content="Add inbound rule…" Symbol="Add" Padding="8,2" Click="OnAddRule" Tag="in" IsEnabled="{Binding CanEdit}" />
+                    <TextBlock Classes="section" Text="Inbound rules" Margin="0" VerticalAlignment="Center" />
+                </DockPanel>
+                <TextBlock Classes="caption" Text="No inbound rules: nothing can connect to resources in this group."
+                           IsVisible="{Binding Inbound.Count, Converter={StaticResource NoItems}}" />
+                <ContentControl Content="{Binding Inbound}" ContentTemplate="{StaticResource RuleRows}" />
+
+                <DockPanel Margin="0,12,0,2">
+                    <views:IconButton DockPanel.Dock="Right" Content="Add outbound rule…" Symbol="Add" Padding="8,2" Click="OnAddRule" Tag="out" IsEnabled="{Binding CanEdit}" />
+                    <TextBlock Classes="section" Text="Outbound rules" Margin="0" VerticalAlignment="Center" />
+                </DockPanel>
+                <TextBlock Classes="caption" Text="No outbound rules: resources in this group cannot open connections."
+                           IsVisible="{Binding Outbound.Count, Converter={StaticResource NoItems}}" />
+                <ContentControl Content="{Binding Outbound}" ContentTemplate="{StaticResource RuleRows}" />
+                <TextBlock Classes="caption" Text="{Binding EditNote}" TextWrapping="Wrap" Margin="0,6,0,0" />
+
+                <TextBlock Classes="section" Text="Used by" />
+                <TextBlock Classes="caption" Text="{Binding UsedByText}" Margin="0,0,0,2" />
+                <ItemsControl ItemsSource="{Binding UsedBy}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Margin="0,1">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="120" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Classes="body" Text="{Binding PrivateIp}" FontFamily="{StaticResource MonoFont}" />
+                                <TextBlock Classes="caption" Grid.Column="1" TextWrapping="Wrap">
+                                    <TextBlock.Text>
+                                        <MultiBinding StringFormat="{}{0} · {1}">
+                                            <Binding Path="Owner" />
+                                            <Binding Path="Id" />
+                                        </MultiBinding>
+                                    </TextBlock.Text>
+                                </TextBlock>
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <StackPanel IsVisible="{Binding ReferencedBy.Count, Converter={StaticResource HasItems}}">
+                    <TextBlock Classes="section" Text="Allowed as a source by" />
+                    <ContentControl Content="{Binding ReferencedBy}" ContentTemplate="{StaticResource GroupChips}" />
+                </StackPanel>
+            </StackPanel>
+        </DataTemplate>
+    </UserControl.DataTemplates>
+
+    <Grid Margin="0,8,0,0">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <WrapPanel>
+            <views:IconButton Symbol="ArrowDownload" Content="Download all now" Click="OnDownloadAll" Margin="0,0,14,4"
+                       ToolTip.Tip="Download VPCs, subnets, interfaces and security groups for every target now" />
+            <TextBox x:Name="SearchBox" Width="300" Margin="0,0,10,4" PlaceholderText="Search (Ctrl+F): IP, CIDR, sg-…, eni-…, name, port…"
+                        TextChanged="OnSearchChanged" KeyDown="OnSearchKeyDown" />
+            <Button Content="Collapse all" Click="OnCollapseAll" Margin="0,0,14,4" />
+            <TextBlock Classes="body" x:Name="Summary" VerticalAlignment="Center" Margin="0,0,14,0" />
+            <TextBlock Classes="body" x:Name="ActionStatus" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="700" />
+        </WrapPanel>
+
+        <Grid Grid.Row="1" Margin="0,6,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="6*" MinWidth="380" />
+                <ColumnDefinition Width="8" />
+                <ColumnDefinition Width="5*" MinWidth="340" />
+            </Grid.ColumnDefinitions>
+
+            <Border Classes="panel" Padding="4">
+                <TreeView x:Name="Tree" Background="Transparent" BorderThickness="0" Foreground="{StaticResource TextNormal}" Padding="0,0,16,14"
+                          SelectionChanged="OnSelected">
+                    <TreeView.ItemTemplate>
+                        <TreeDataTemplate DataType="views:DashNode" ItemsSource="{Binding Children}">
+                            <Grid Margin="0,1" Opacity="{Binding TitleOpacity}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="16" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Ellipse Classes="dot" Fill="{Binding Level, Converter={StaticResource LevelToBrush}}" />
+                                <TextBlock Grid.Column="1" Classes="title" Classes.strong="{Binding IsStrong}" Classes.match="{Binding IsMatch}" Text="{Binding Title}" FontSize="12" VerticalAlignment="Center" />
+                                <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="10,0,0,0" VerticalAlignment="Center">
+                                    <TextBlock Classes="caption" Text="{Binding Right}" VerticalAlignment="Center" />
+                                    <ItemsControl ItemsSource="{Binding Gauges}" Focusable="False">
+                                        <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <StackPanel Orientation="Horizontal" Margin="0,0,12,0">
+                                                    <TextBlock Classes="caption" Text="{Binding Label}" FontSize="10" VerticalAlignment="Center" Margin="0,0,4,0" />
+                                                    <views:UsageBar Percent="{Binding Percent}" Level="{Binding Level}" Width="40" Height="5" Margin="0,0,5,0"
+                                                                    IsVisible="{Binding HasBar}" />
+                                                    <TextBlock Classes="caption" Text="{Binding Text}" Foreground="{StaticResource TextNormal}" VerticalAlignment="Center" />
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                                <TextBlock Classes="caption" Grid.Column="3" Text="{Binding Subtitle}" Margin="10,0,0,0" VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis" MaxWidth="560" />
+                            </Grid>
+                        </TreeDataTemplate>
+                    </TreeView.ItemTemplate>
+                </TreeView>
+            </Border>
+
+            <GridSplitter Grid.Column="1" Width="8" HorizontalAlignment="Stretch" Background="Transparent" />
+
+            <Border Classes="panel" Grid.Column="2">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
+                    <ContentControl x:Name="Details" Foreground="{StaticResource TextNormal}" Focusable="False" Margin="0,0,18,0">
+                        <TextBlock Classes="body" Text="Select a VPC, subnet, IP address or security group." />
+                    </ContentControl>
+                </ScrollViewer>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl>

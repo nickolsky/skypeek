@@ -1,0 +1,24 @@
+<views:DialogWindow x:Class="Skypeek.Desktop.Views.SuppressDialog"
+                 xmlns="https://github.com/avaloniaui"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 Title="Suppress alarm" Width="520" SizeToContent="Height" CanResize="False" FontSize="12"
+                 WindowStartupLocation="CenterOwner"
+        xmlns:views="using:Skypeek.Desktop.Views">
+    <StackPanel>
+        <StackPanel Margin="18,2,18,18">
+            <TextBlock Classes="body" TextWrapping="Wrap"
+                       Text="Suppressed alarms stay visible (greyed out) but never count as problems, never turn the tray icon red and never raise notifications." />
+            <TextBlock Classes="caption" Text="Alarm name or pattern (* and ? wildcards)" Margin="0,12,0,4" />
+            <TextBox x:Name="Pattern" TextChanged="OnPatternChanged" FontFamily="{StaticResource MonoFont}" />
+            <TextBlock Classes="caption" x:Name="Preview" Margin="0,4,0,0" TextWrapping="Wrap" />
+            <TextBlock Classes="caption" Text="Scope" Margin="0,12,0,4" />
+            <RadioButton x:Name="ThisTarget" GroupName="scope" IsChecked="True" IsCheckedChanged="OnPatternChanged" />
+            <RadioButton x:Name="AllTargets" GroupName="scope" Content="All targets" IsCheckedChanged="OnPatternChanged" />
+            <TextBlock x:Name="Error" Foreground="#FFFF7B7F" IsVisible="False" Margin="0,8,0,0" />
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+                <Button Content="Cancel" Margin="0,0,8,0" IsCancel="True" Click="OnCancel" />
+                <Button Classes="accent" Content="Suppress" IsDefault="True" Click="OnSave" />
+            </StackPanel>
+        </StackPanel>
+    </StackPanel>
+</views:DialogWindow>

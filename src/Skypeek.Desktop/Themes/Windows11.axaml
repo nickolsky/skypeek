@@ -1,0 +1,65 @@
+<!--
+  Windows 11 look on top of Avalonia's Fluent theme (colors are in Windows11Resources.axaml): Mica window backdrop
+  where the OS has it (Windows 11; elsewhere the solid WindowBackground), WPF-UI style tabs, and the accent pipe on the
+  selected tree row.
+-->
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Style Selector="Window">
+        <Setter Property="TransparencyLevelHint" Value="Mica" />
+        <!-- A dark layer over Mica: the wallpaper tint stays subtle and text keeps its contrast (as in WPF-UI). -->
+        <Setter Property="Background" Value="{StaticResource MicaOverlay}" />
+        <Setter Property="TransparencyBackgroundFallback" Value="{StaticResource WindowBackground}" />
+    </Style>
+
+    <!-- Tabs: a rounded, lightly filled box behind the selected header (no underline). -->
+    <Style Selector="TabItem">
+        <Setter Property="Padding" Value="10,0" />
+        <Setter Property="Margin" Value="0,0,2,0" />
+        <Setter Property="CornerRadius" Value="4" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+    </Style>
+    <Style Selector="TabItem:selected">
+        <Setter Property="BorderBrush" Value="{DynamicResource ControlStroke}" />
+    </Style>
+
+    <!-- Trees: a 3 px accent bar on the left of the selected row (TreeViewItemBorderThemeThickness), like Windows 11 lists. -->
+    <Style Selector="TreeViewItem:selected /template/ Border#PART_LayoutRoot">
+        <Setter Property="BorderBrush" Value="{DynamicResource AccentFill}" />
+    </Style>
+
+    <!-- Links: underlined only under the pointer (WinUI / WPF-UI). -->
+    <Style Selector="HyperlinkButton:not(:pointerover) /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="TextBlock.TextDecorations" Value="{x:Null}" />
+    </Style>
+
+    <!-- Fluent's check boxes reserve 120 px each; WPF-UI's are as wide as their text. -->
+    <Style Selector="CheckBox">
+        <Setter Property="MinWidth" Value="0" />
+    </Style>
+
+    <!-- Lists: the selected item filled with the accent (as in the WPF app); subtle hover otherwise. -->
+    <Style Selector="ListBoxItem">
+        <Setter Property="CornerRadius" Value="4" />
+    </Style>
+    <Style Selector="ListBoxItem /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="CornerRadius" Value="4" />
+    </Style>
+    <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource SubtleFillHover}" />
+    </Style>
+    <Style Selector="ListBoxItem:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource SubtleFillPressed}" />
+    </Style>
+    <Style Selector="ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource ListSelected}" />
+    </Style>
+    <Style Selector="ListBoxItem:selected:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource ListSelectedHover}" />
+    </Style>
+    <Style Selector="ListBoxItem:selected:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource ListSelectedPressed}" />
+    </Style>
+</Styles>

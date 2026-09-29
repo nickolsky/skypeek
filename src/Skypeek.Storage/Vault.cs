@@ -64,7 +64,10 @@ public sealed class Vault : IDisposable
         _connection = connection;
     }
 
-    /// <summary>%LOCALAPPDATA%\Skypeek, or SKYPEEK_HOME when set (e.g. for a separate test vault).</summary>
+    /// <summary>
+    /// The per-user local app data folder + Skypeek (%LOCALAPPDATA%\Skypeek on Windows, ~/.local/share/Skypeek on
+    /// Linux, ~/Library/Application Support/Skypeek on macOS), or SKYPEEK_HOME when set (e.g. for a separate test vault).
+    /// </summary>
     public static string DefaultDirectory =>
         Environment.GetEnvironmentVariable("SKYPEEK_HOME") is { Length: > 0 } custom
             ? custom
@@ -111,7 +114,7 @@ public sealed class Vault : IDisposable
 
     public static Vault Create(string directory, string password, string hotkey)
     {
-        Directory.CreateDirectory(directory);
+        CreatePrivateDirectory(directory);
         if (Exists(directory))
             throw new InvalidOperationException("A vault already exists.");
 
@@ -125,6 +128,7 @@ public sealed class Vault : IDisposable
 
     public static Vault Open(string directory, string password)
     {
+        CreatePrivateDirectory(directory);
         // A pending meta exists only if a password change was interrupted; try both.
         var candidates = new[] { PendingMetaFile, MetaFile }
             .Select(f => Path.Combine(directory, f))
@@ -255,6 +259,24 @@ public sealed class Vault : IDisposable
             connection.Dispose();
             throw;
         }
+    }
+
+    private const UnixFileMode OwnerOnly = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
+
+    /// <summary>
+    /// Creates the vault folder, and on Linux/macOS keeps it owner-only (0700): files there would otherwise be readable
+    /// by other local users (umask 022). On Windows the per-user app data folder is already private.
+    /// </summary>
+    private static void CreatePrivateDirectory(string directory)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            Directory.CreateDirectory(directory);
+            return;
+        }
+        Directory.CreateDirectory(directory, OwnerOnly);
+        if (File.GetUnixFileMode(directory) != OwnerOnly)
+            File.SetUnixFileMode(directory, OwnerOnly); // an existing folder keeps its old mode
     }
 
     private static void WriteMetaAtomic(string directory, VaultMeta meta)

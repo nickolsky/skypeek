@@ -21,6 +21,23 @@ public class VaultTests
     }
 
     [Fact]
+    public void Vault_folder_is_owner_only_on_linux_and_macos()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+        using var dir = new TempDir();
+        var vaultDir = Path.Combine(dir.Path, "vault");
+        Directory.CreateDirectory(vaultDir, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute | UnixFileMode.GroupRead | UnixFileMode.GroupExecute | UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+        using (Vault.Create(vaultDir, "pw", "Win+Alt+A"))
+            Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute, File.GetUnixFileMode(vaultDir));
+
+        // A folder loosened later (e.g. copied from elsewhere) is tightened again on open.
+        File.SetUnixFileMode(vaultDir, File.GetUnixFileMode(vaultDir) | UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+        using var reopened = Vault.Open(vaultDir, "pw");
+        Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute, File.GetUnixFileMode(vaultDir));
+    }
+
+    [Fact]
     public void Database_file_is_encrypted_on_disk()
     {
         using var dir = new TempDir();

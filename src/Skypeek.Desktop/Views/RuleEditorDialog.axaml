@@ -1,0 +1,71 @@
+<views:DialogWindow x:Class="Skypeek.Desktop.Views.RuleEditorDialog"
+        xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Security group rule" Width="520" SizeToContent="Height" CanResize="False" FontSize="12"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="#FF2B2B2B"
+        xmlns:views="using:Skypeek.Desktop.Views">
+    <DockPanel>
+
+        <Border DockPanel.Dock="Bottom" Background="#FF202020" BorderBrush="#FF3D3D3D" BorderThickness="0,1,0,0" Padding="20,14">
+            <DockPanel>
+                <TextBlock Classes="caption" DockPanel.Dock="Left" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="250"
+                           Text="Next: the permission dialog shows the exact change before anything is sent." />
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Content="Cancel" Margin="0,0,8,0" MinWidth="80" IsCancel="True" Click="OnCancel" />
+                    <Button Classes="accent" x:Name="OkButton" Content="Continue…" MinWidth="90" IsDefault="True" Click="OnOk" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <StackPanel Margin="20,4,20,18">
+            <TextBlock x:Name="GroupText" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource TextStrong}" TextWrapping="Wrap" />
+            <TextBlock Classes="caption" x:Name="DirectionText" Margin="0,2,0,12" TextWrapping="Wrap" />
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="110" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                </Grid.RowDefinitions>
+                <TextBlock Classes="body" Text="Type" VerticalAlignment="Center" />
+                <ComboBox x:Name="Preset" Grid.Column="1" Margin="0,4" DisplayMemberBinding="{Binding Label}" SelectionChanged="OnPresetChanged" />
+
+                <TextBlock Classes="body" Grid.Row="1" Text="Protocol" VerticalAlignment="Center" />
+                <TextBox x:Name="Protocol" Grid.Row="1" Grid.Column="1" Margin="0,4" PlaceholderText="tcp, udp, icmp, icmpv6, -1 (all) or a number" TextChanged="OnChanged" />
+
+                <TextBlock Classes="body" x:Name="PortLabel" Grid.Row="2" Text="Port range" VerticalAlignment="Center" />
+                <TextBox x:Name="Ports" Grid.Row="2" Grid.Column="1" Margin="0,4" PlaceholderText="443, or 8000-8100" TextChanged="OnChanged" />
+
+                <TextBlock Classes="body" Grid.Row="3" Text="Source" x:Name="SourceLabel" VerticalAlignment="Center" />
+                <ComboBox x:Name="SourceKind" Grid.Row="3" Grid.Column="1" Margin="0,4" SelectionChanged="OnSourceKindChanged">
+                    <ComboBoxItem Content="IPv4 CIDR" />
+                    <ComboBoxItem Content="IPv6 CIDR" />
+                    <ComboBoxItem Content="Security group" />
+                    <ComboBoxItem Content="Prefix list" />
+                </ComboBox>
+
+                <DockPanel Grid.Row="4" Grid.Column="1" Margin="0,4">
+                    <Button x:Name="MyIpButton" DockPanel.Dock="Right" Content="My IP" Margin="6,0,0,0" Click="OnMyIp"
+                               ToolTip.Tip="Asks checkip.amazonaws.com for this computer's public IPv4 address and fills it in as /32" />
+                    <ComboBox x:Name="Source" IsEditable="True" IsTextSearchEnabled="False" DisplayMemberBinding="{Binding Label}" />
+                </DockPanel>
+
+                <TextBlock Classes="body" Grid.Row="5" Text="Description" VerticalAlignment="Center" />
+                <TextBox x:Name="Description" Grid.Row="5" Grid.Column="1" Margin="0,4" PlaceholderText="optional, e.g. office VPN" MaxLength="255" />
+            </Grid>
+            <TextBlock Classes="body" x:Name="SummaryText" TextWrapping="Wrap" Margin="0,10,0,0" />
+            <Border x:Name="WorldWarning" Background="#44E8464A" CornerRadius="4" Padding="10,6" Margin="0,8,0,0" IsVisible="False">
+                <TextBlock Foreground="{StaticResource TextStrong}" TextWrapping="Wrap"
+                           Text="⚠ This allows the whole internet. Anyone can connect to these ports on every resource using this group. Prefer a specific address range; you will be asked to type the group ID to confirm." />
+            </Border>
+            <TextBlock x:Name="Error" Foreground="#FFFF7B7F" IsVisible="False" Margin="0,8,0,0" TextWrapping="Wrap" />
+        </StackPanel>
+    </DockPanel>
+</views:DialogWindow>

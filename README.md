@@ -1,6 +1,6 @@
 # Skypeek for AWS
 
-A read-only Windows tray tool for everyday AWS lookups, built so you don't need the CLI or the console for them:
+A read-only tray tool for Windows, macOS and Linux for everyday AWS lookups, built so you don't need the CLI or the console for them:
 
 - **Secrets Manager and SSM Parameter Store:** keeps a searchable list of names and metadata, refreshed on a schedule per account and region. You can reveal and copy a value on demand.
 - **Elastic Beanstalk:** shows environment health, failed deploys, EC2 CPU (and memory when the CloudWatch agent publishes it), and CloudWatch alarms.
@@ -17,19 +17,43 @@ A read-only Windows tray tool for everyday AWS lookups, built so you don't need 
 
 ## Build and run
 
+The app is `src/Skypeek.Desktop` (Avalonia, one code base for Windows, macOS and Linux). Everything else (AWS access, the read-only guard, the vault, health and cost rules) is shared and platform-neutral.
+
 ```bash
 dotnet build Skypeek.sln
 dotnet test tests/Skypeek.Tests
-dotnet publish src/Skypeek.App -c Release -o publish
 ```
 
-`publish/Skypeek.exe` is a single file that needs the .NET 10 Desktop Runtime.
+| Platform | Build | Result |
+|---|---|---|
+| Windows | `tools\publish.ps1 -Targets win` | `dist\win-x64\Skypeek.exe`, one file; needs the .NET 10 runtime (`-SelfContained` for one that doesn't) |
+| Linux | `tools\publish.ps1 -Targets linux` (on Windows), or on Linux: `dotnet publish src/Skypeek.Desktop -c Release -r linux-x64 -p:SelfContained=true -o dist/linux` | `dist/Skypeek-<version>-linux-x64.tar.gz`: one self-contained file plus `install.sh` |
+| macOS | on a Mac: `tools/package-macos.sh` (`ARCH=x64` for Intel; `SIGN_IDENTITY=… NOTARY_PROFILE=…` to sign and notarize) | `dist/macos-<arch>/Skypeek.app` and a zip |
+
+**Install on Linux:** `tar xzf Skypeek-*-linux-x64.tar.gz && sh skypeek-linux-x64/install.sh`. It installs for the current user only (`~/.local/share/skypeek`, a menu entry and `~/.local/bin/skypeek`); `install.sh --uninstall` removes it and keeps the vault.
+
+**Install on macOS:** move `Skypeek.app` to Applications. Unsigned builds need **right-click → Open** the first time (or System Settings → Privacy & Security → Open Anyway). It is a menu bar app: no Dock icon.
+
+The WPF app in `src/Skypeek.App` (Windows only) is the previous UI. It stays in the repository until the Avalonia app has been tried on Windows; both use the same vault.
+
+### What differs between platforms
+
+| | Windows | macOS | Linux |
+|---|---|---|---|
+| Tray / menu bar icon | notification area | menu bar | needs a status notifier host: KDE, most desktops, GNOME with the AppIndicator extension (preinstalled on Ubuntu). Without one, closing the window minimizes it instead of hiding it, and locking shows the unlock window |
+| Notifications | Windows toasts (click opens the problems) | Notification Center (via `osascript`) | desktop notifications (`notify-send`, or D-Bus) |
+| Global hotkey | yes (**Win+Alt+A**) | not yet: use the menu bar icon | X11 sessions (**Super+Alt+A**); not on Wayland (use the tray icon, or a desktop shortcut that starts Skypeek: a second start shows the window) |
+| Lock when the computer locks | yes | yes (screen lock) | through logind (GNOME, KDE and most others) |
+| Idle lockout | system-wide idle time | system-wide idle time | X11: system-wide; Wayland: time since your last input in Skypeek's windows |
+| Start at login | Run key | LaunchAgent | `~/.config/autostart` entry |
+| Vault folder | `%LOCALAPPDATA%\Skypeek` | `~/Library/Application Support/Skypeek` | `~/.local/share/Skypeek` (owner-only, `0700`) |
+| AWS SSO sign-in button | runs `aws sso login` in a console | runs it without a terminal; the CLI opens the browser and its output (URL and code) shows in the status line | same as macOS |
 
 ## First run
 
 1. Start `Skypeek.exe` and create the master password.
-2. **Settings → Accounts & regions:** pick a profile from `%USERPROFILE%\.aws\credentials` and one or more regions, then click **Add selected** and **Save**. Each profile + region pair is a *target*, with its own features, schedules and threshold overrides.
-3. Press **Win+Alt+A** (or click the tray icon) to open the main window. It has four tabs:
+2. **Settings → Accounts & regions:** pick a profile from `~/.aws/credentials` (`%USERPROFILE%\.aws\credentials` on Windows) and one or more regions, then click **Add selected** and **Save**. Each profile + region pair is a *target*, with its own features, schedules and threshold overrides.
+3. Press **Win+Alt+A** (or click the tray / menu bar icon) to open the main window. It has four tabs:
    - **Secrets & parameters:** search on the left, details and reveal on the right.
    - **Dashboard:** a tree of target → Elastic Beanstalk / ECS / RDS / ElastiCache / EC2 / load balancers / CloudWatch alarms, with a details panel for the selected item.
    - **Logs**
@@ -201,11 +225,11 @@ You can change the hotkey in Settings → General. Press the combination in the 
   - The few non-read actions (see [Non-read actions](#non-read-actions)) pass only for an elevated, user-approved call with the expected narrow parameters.
   - Tests send real write requests (`PutParameter`, `UpdateService`, `RequestEnvironmentInfo`, `StopInstances`, `RevokeSecurityGroupIngress`) through the pipeline and assert that nothing reaches the network unless the call is elevated, approved and narrowly shaped.
   - An architecture test fails the build if the source references any SDK request type that isn't on one of the two lists.
-- **Encryption.** Everything local lives in one SQLCipher database at `%LOCALAPPDATA%\Skypeek\vault.db`: settings, targets, secret/parameter lists, health snapshots, network inventory snapshots, the request log and credential halts. The 256-bit key comes from the master password via Argon2id (64 MB, 3 iterations). `vault.meta` next to it holds only the KDF salt and parameters and the hotkey, which is needed before unlock.
+- **Encryption.** Everything local lives in one SQLCipher database, `vault.db` in the vault folder (see the platform table above): settings, targets, secret/parameter lists, health snapshots, network inventory snapshots, the request log and credential halts. The 256-bit key comes from the master password via Argon2id (64 MB, 3 iterations). `vault.meta` next to it holds only the KDF salt and parameters and the hotkey, which is needed before unlock.
 - **Values are never stored.**
   - Revealed values hide after 30 seconds.
-  - Copied secret values are excluded from Windows clipboard history and cloud sync, and the clipboard is cleared after 30 seconds if it still holds the value.
-- **Lock.** After unlocking, the key stays in memory so background refresh keeps running. After the idle lockout (default 15 min) or a Windows lock (Win+L), the UI closes and you must re-enter the master password to get back in.
+  - Copied secret values carry each platform's "don't record" hints (excluded from Windows clipboard history and cloud sync; the concealed type macOS password managers honour; KDE Klipper's password hint), and the clipboard is cleared after 30 seconds if it still holds the value. Other Linux clipboard managers may still keep a copy.
+- **Lock.** After unlocking, the key stays in memory so background refresh keeps running. After the idle lockout (default 15 min) or when the computer locks (Win+L on Windows), the UI closes and you must re-enter the master password to get back in.
 - **Request log.** It records service, operation, allowlisted parameters (such as the parameter *name* and `WithDecryption`), HTTP status, duration, AWS request ID and error code. It never records values, tokens, headers or response bodies. Entries are kept for 30 days (configurable).
 
 ## Expired credentials
@@ -233,11 +257,11 @@ When AWS rejects a profile's credentials (`ExpiredToken`, `InvalidClientTokenId`
   Hidden resources never count.
 - **Grey:** locked since startup.
 
-Warning-level problems turn the icon red by default; you can change that in Settings → General. Toasts appear only when a status changes.
+Warning-level problems turn the icon red by default; you can change that in Settings → General. Notifications appear only when a status changes.
 
 ## Notes
 
-- **Unlock after boot.** "Start with Windows" launches Skypeek in the tray. Refresh starts once you unlock it once after login.
+- **Unlock after boot.** "Start with Windows" (or "at login") launches Skypeek in the tray. Refresh starts once you unlock it once after login.
 - **Secret values and the ReadOnly role.** AWS's managed ReadOnlyAccess policy probably does not grant `secretsmanager:GetSecretValue`, and decrypting a SecureString that uses a customer-managed KMS key needs `kms:Decrypt`. If the role can't read a value, the details view says so.
 - **Console links.** Links open the AWS console in your default browser, in whichever account that browser is signed into.
 - **CloudWatch cost.** `GetMetricData` costs about $0.01 per 1,000 metrics. Settings shows an estimate for each target; for example, 50 services polled every 5 minutes is roughly $9 per month.
@@ -249,7 +273,7 @@ Warning-level problems turn the icon red by default; you can change that in Sett
 |---|---|
 | `SKYPEEK_HOME` | Uses a different vault folder, e.g. a throwaway test vault |
 | `AWS_SHARED_CREDENTIALS_FILE` | Uses a different credentials file (standard AWS variable) |
-| `SKYPEEK_DEBUG=1` | Writes crash details to `debug.log` in the vault folder. It's off by default because the file is not encrypted. |
+| `SKYPEEK_DEBUG=1` | Writes crash details to `debug.log` in the vault folder, and the UI framework's warnings to stderr. It's off by default because the file is not encrypted. |
 
 ## Layout
 
@@ -257,7 +281,10 @@ Warning-level problems turn the icon red by default; you can change that in Sett
 src/Skypeek.Core      models, CredentialMonitor, TargetScheduler, HealthRules, SearchIndex, services
 src/Skypeek.Aws       AwsGateway (typed read-only calls), ReadOnlyGuard, RequestLogHandler, StsValidator
 src/Skypeek.Storage   Vault (SQLCipher + Argon2id), VaultRepository
-src/Skypeek.App       WPF tray app: search, details, dashboard, logs, network, request log, settings, lock, hotkey
+src/Skypeek.Desktop   Avalonia tray app (Windows, macOS, Linux): search, details, dashboard, logs, network, request log,
+                      settings, lock; Platform/ has the per-OS tray, notifications, hotkey, idle, lock, autostart, clipboard
+src/Skypeek.App       previous WPF app (Windows only), kept until the Avalonia app replaces it
+packaging/            Linux install.sh, macOS Info.plist and entitlements; tools/publish.ps1, tools/package-macos.sh
 tests/Skypeek.Tests   guard/pipeline, architecture, redaction, credential halting, vault, health rules
 ```
 

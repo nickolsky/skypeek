@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>Skypeek</string>
+    <key>CFBundleDisplayName</key>
+    <string>Skypeek</string>
+    <key>CFBundleIdentifier</key>
+    <string>net.skypeek.desktop</string>
+    <key>CFBundleExecutable</key>
+    <string>Skypeek</string>
+    <key>CFBundleIconFile</key>
+    <string>Skypeek.icns</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleVersion</key>
+    <string>@VERSION@</string>
+    <key>CFBundleShortVersionString</key>
+    <string>@VERSION@</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>12.0</string>
+    <!-- A menu bar app: no Dock icon; the main window opens from the menu bar icon. -->
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSHumanReadableCopyright</key>
+    <string>Skypeek for AWS. Not affiliated with Amazon Web Services.</string>
+</dict>
+</plist>

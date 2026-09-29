@@ -1,0 +1,50 @@
+<views:DialogWindow x:Class="Skypeek.Desktop.Views.ThresholdDialog"
+        xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Thresholds" Width="440" SizeToContent="Height" CanResize="False" FontSize="12"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="#FF2B2B2B"
+        xmlns:views="using:Skypeek.Desktop.Views">
+    <!-- Same plain look as ConfirmDialog (FluentWindow's Mica tint and extra height looked broken). -->
+    <DockPanel>
+
+        <Border DockPanel.Dock="Bottom" Background="#FF202020" BorderBrush="#FF3D3D3D" BorderThickness="0,1,0,0" Padding="20,14">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="ClearButton" Content="Remove override" Margin="0,0,8,0" Click="OnClear" />
+                <Button Content="Cancel" Margin="0,0,8,0" MinWidth="80" IsCancel="True" Click="OnCancel" />
+                <Button Classes="accent" Content="Save" MinWidth="80" IsDefault="True" Click="OnSave" />
+            </StackPanel>
+        </Border>
+
+        <StackPanel Margin="20,4,20,18">
+            <TextBlock x:Name="ResourceText" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource TextStrong}" TextWrapping="Wrap" />
+            <TextBlock Classes="caption" Text="Overrides the target and global thresholds (percent). Applied right away." Margin="0,2,0,12" />
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="130" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="12" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                </Grid.RowDefinitions>
+                <TextBlock Classes="caption" Grid.Column="1" Text="Warning" />
+                <TextBlock Classes="caption" Grid.Column="3" Text="Critical" />
+                <TextBlock Classes="body" x:Name="CpuLabel" Grid.Row="1" Text="CPU" VerticalAlignment="Center" TextWrapping="Wrap" />
+                <TextBox x:Name="CpuWarn" Grid.Row="1" Grid.Column="1" Margin="0,4" />
+                <TextBox x:Name="CpuCrit" Grid.Row="1" Grid.Column="3" Margin="0,4" />
+                <TextBlock Classes="body" x:Name="MemLabel" Grid.Row="2" Text="Memory" VerticalAlignment="Center" TextWrapping="Wrap" />
+                <TextBox x:Name="MemWarn" Grid.Row="2" Grid.Column="1" Margin="0,4" />
+                <TextBox x:Name="MemCrit" Grid.Row="2" Grid.Column="3" Margin="0,4" />
+                <TextBlock Classes="body" x:Name="StorageLabel" Grid.Row="3" Text="Storage used" VerticalAlignment="Center" IsVisible="False" />
+                <TextBox x:Name="StorageWarn" Grid.Row="3" Grid.Column="1" Margin="0,4" IsVisible="False" />
+                <TextBox x:Name="StorageCrit" Grid.Row="3" Grid.Column="3" Margin="0,4" IsVisible="False" />
+            </Grid>
+            <TextBlock x:Name="Error" Foreground="#FFFF7B7F" IsVisible="False" Margin="0,8,0,0" TextWrapping="Wrap" />
+        </StackPanel>
+    </DockPanel>
+</views:DialogWindow>

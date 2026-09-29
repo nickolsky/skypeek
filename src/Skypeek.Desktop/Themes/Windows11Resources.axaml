@@ -1,0 +1,216 @@
+<!--
+  Windows 11 (WinUI 3 / WPF-UI) dark colors for Avalonia's Fluent controls, which otherwise use the older Windows 10
+  palette (solid grey fills, strong outlines, dark accent with white text). Merged into Application.Resources, so these
+  keys win over the theme's. The accent follows the system accent color (its "Light 2" shade, as Windows 11 dark does).
+-->
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <CornerRadius x:Key="ControlCornerRadius">4</CornerRadius>
+    <CornerRadius x:Key="OverlayCornerRadius">8</CornerRadius>
+
+    <!-- Laid over the Mica backdrop (Windows 11); where there is no Mica the window is the solid WindowBackground. -->
+    <SolidColorBrush x:Key="MicaOverlay" Color="#B81C1C1C" />
+
+    <!-- Accent fills (AccentFillColorDefault / Secondary / Tertiary) and text on them. -->
+    <SolidColorBrush x:Key="AccentFill" Color="{DynamicResource SystemAccentColorLight2}" />
+    <SolidColorBrush x:Key="AccentFillHover" Color="{DynamicResource SystemAccentColorLight2}" Opacity="0.9" />
+    <SolidColorBrush x:Key="AccentFillPressed" Color="{DynamicResource SystemAccentColorLight2}" Opacity="0.8" />
+    <SolidColorBrush x:Key="AccentFillDisabled" Color="#28FFFFFF" />
+    <SolidColorBrush x:Key="AccentText" Color="{DynamicResource SystemAccentColorLight2}" />
+    <SolidColorBrush x:Key="AccentTextHover" Color="{DynamicResource SystemAccentColorLight3}" />
+    <SolidColorBrush x:Key="TextOnAccent" Color="#FF000000" />
+    <SolidColorBrush x:Key="TextOnAccentPressed" Color="#80000000" />
+    <SolidColorBrush x:Key="TextOnAccentDisabled" Color="#87FFFFFF" />
+
+    <!-- Control fills and strokes. -->
+    <SolidColorBrush x:Key="ControlFill" Color="#0FFFFFFF" />
+    <SolidColorBrush x:Key="ControlFillHover" Color="#15FFFFFF" />
+    <SolidColorBrush x:Key="ControlFillPressed" Color="#08FFFFFF" />
+    <SolidColorBrush x:Key="ControlFillDisabled" Color="#0BFFFFFF" />
+    <SolidColorBrush x:Key="ControlFillInputActive" Color="#B31E1E1E" />
+    <SolidColorBrush x:Key="ControlStroke" Color="#18FFFFFF" />
+    <SolidColorBrush x:Key="ControlStrokeSubtle" Color="#12FFFFFF" />
+    <SolidColorBrush x:Key="ControlStrongStroke" Color="#8BFFFFFF" />
+    <SolidColorBrush x:Key="ControlStrongStrokeDisabled" Color="#28FFFFFF" />
+    <SolidColorBrush x:Key="ControlAltFill" Color="#19000000" />
+    <SolidColorBrush x:Key="ControlAltFillHover" Color="#0BFFFFFF" />
+    <SolidColorBrush x:Key="ControlAltFillPressed" Color="#12FFFFFF" />
+    <SolidColorBrush x:Key="SubtleFillHover" Color="#0FFFFFFF" />
+    <SolidColorBrush x:Key="SubtleFillPressed" Color="#0AFFFFFF" />
+    <SolidColorBrush x:Key="SubtleFillSelected" Color="#15FFFFFF" />
+    <SolidColorBrush x:Key="TextPrimary" Color="#FFFFFFFF" />
+    <SolidColorBrush x:Key="TextSecondary" Color="#C5FFFFFF" />
+    <SolidColorBrush x:Key="TextDisabled" Color="#5DFFFFFF" />
+    <SolidColorBrush x:Key="FlyoutBackground" Color="#FF2C2C2C" />
+    <SolidColorBrush x:Key="FlyoutStroke" Color="#26FFFFFF" />
+
+    <!-- Text boxes: a subtle outline with a stronger bottom line (accent and 2 px when focused), like WinUI. The
+         gradient is 1-2 px tall in absolute units and flipped, so the line sits at the bottom at any height. -->
+    <LinearGradientBrush x:Key="TextControlBorderBrush" StartPoint="0,0" EndPoint="0,2" TransformOrigin="50%,50%">
+        <LinearGradientBrush.Transform>
+            <ScaleTransform ScaleY="-1" />
+        </LinearGradientBrush.Transform>
+        <GradientStop Offset="0.5" Color="#8BFFFFFF" />
+        <GradientStop Offset="0.5" Color="#12FFFFFF" />
+    </LinearGradientBrush>
+    <StaticResource x:Key="TextControlBorderBrushPointerOver" ResourceKey="TextControlBorderBrush" />
+    <LinearGradientBrush x:Key="TextControlBorderBrushFocused" StartPoint="0,0" EndPoint="0,2" TransformOrigin="50%,50%">
+        <LinearGradientBrush.Transform>
+            <ScaleTransform ScaleY="-1" />
+        </LinearGradientBrush.Transform>
+        <GradientStop Offset="1" Color="{DynamicResource SystemAccentColorLight2}" />
+        <GradientStop Offset="1" Color="#12FFFFFF" />
+    </LinearGradientBrush>
+    <Thickness x:Key="TextControlBorderThemeThicknessFocused">1,1,1,2</Thickness>
+    <StaticResource x:Key="TextControlBackground" ResourceKey="ControlFill" />
+    <StaticResource x:Key="TextControlBackgroundPointerOver" ResourceKey="ControlFillHover" />
+    <StaticResource x:Key="TextControlBackgroundFocused" ResourceKey="ControlFillInputActive" />
+    <StaticResource x:Key="TextControlBackgroundDisabled" ResourceKey="ControlFillDisabled" />
+    <StaticResource x:Key="TextControlBorderBrushDisabled" ResourceKey="ControlStrokeSubtle" />
+    <StaticResource x:Key="TextControlForegroundDisabled" ResourceKey="TextDisabled" />
+    <SolidColorBrush x:Key="TextControlPlaceholderForeground" Color="#C5FFFFFF" />
+    <SolidColorBrush x:Key="TextControlPlaceholderForegroundPointerOver" Color="#C5FFFFFF" />
+    <SolidColorBrush x:Key="TextControlPlaceholderForegroundFocused" Color="#87FFFFFF" />
+    <StaticResource x:Key="TextControlButtonForegroundPointerOver" ResourceKey="AccentText" />
+    <StaticResource x:Key="TextControlButtonBackgroundPressed" ResourceKey="AccentFill" />
+    <StaticResource x:Key="TextControlButtonForegroundPressed" ResourceKey="TextOnAccent" />
+
+    <!-- Buttons. -->
+    <StaticResource x:Key="ButtonBackground" ResourceKey="ControlFill" />
+    <StaticResource x:Key="ButtonBackgroundPointerOver" ResourceKey="ControlFillHover" />
+    <StaticResource x:Key="ButtonBackgroundPressed" ResourceKey="ControlFillPressed" />
+    <StaticResource x:Key="ButtonBackgroundDisabled" ResourceKey="ControlFillDisabled" />
+    <StaticResource x:Key="ButtonBorderBrush" ResourceKey="ControlStroke" />
+    <StaticResource x:Key="ButtonBorderBrushPointerOver" ResourceKey="ControlStroke" />
+    <StaticResource x:Key="ButtonBorderBrushPressed" ResourceKey="ControlStrokeSubtle" />
+    <StaticResource x:Key="ButtonBorderBrushDisabled" ResourceKey="ControlStrokeSubtle" />
+    <StaticResource x:Key="ButtonForegroundPressed" ResourceKey="TextSecondary" />
+    <StaticResource x:Key="ButtonForegroundDisabled" ResourceKey="TextDisabled" />
+    <StaticResource x:Key="AccentButtonBackground" ResourceKey="AccentFill" />
+    <StaticResource x:Key="AccentButtonBackgroundPointerOver" ResourceKey="AccentFillHover" />
+    <StaticResource x:Key="AccentButtonBackgroundPressed" ResourceKey="AccentFillPressed" />
+    <StaticResource x:Key="AccentButtonBackgroundDisabled" ResourceKey="AccentFillDisabled" />
+    <SolidColorBrush x:Key="AccentButtonBorderBrush" Color="#14FFFFFF" />
+    <SolidColorBrush x:Key="AccentButtonBorderBrushPointerOver" Color="#14FFFFFF" />
+    <SolidColorBrush x:Key="AccentButtonBorderBrushPressed" Color="Transparent" />
+    <StaticResource x:Key="AccentButtonForeground" ResourceKey="TextOnAccent" />
+    <StaticResource x:Key="AccentButtonForegroundPointerOver" ResourceKey="TextOnAccent" />
+    <StaticResource x:Key="AccentButtonForegroundPressed" ResourceKey="TextOnAccentPressed" />
+    <StaticResource x:Key="AccentButtonForegroundDisabled" ResourceKey="TextOnAccentDisabled" />
+    <StaticResource x:Key="HyperlinkButtonForeground" ResourceKey="AccentText" />
+    <StaticResource x:Key="HyperlinkButtonForegroundPointerOver" ResourceKey="AccentTextHover" />
+    <StaticResource x:Key="HyperlinkButtonForegroundPressed" ResourceKey="AccentText" />
+    <StaticResource x:Key="HyperlinkButtonForegroundVisited" ResourceKey="AccentText" />
+    <StaticResource x:Key="HyperlinkButtonForegroundVisitedPointerOver" ResourceKey="AccentTextHover" />
+    <StaticResource x:Key="HyperlinkButtonForegroundVisitedPressed" ResourceKey="AccentText" />
+
+    <!-- Combo boxes. -->
+    <StaticResource x:Key="ComboBoxBackground" ResourceKey="ControlFill" />
+    <StaticResource x:Key="ComboBoxBackgroundPointerOver" ResourceKey="ControlFillHover" />
+    <StaticResource x:Key="ComboBoxBackgroundPressed" ResourceKey="ControlFillPressed" />
+    <StaticResource x:Key="ComboBoxBackgroundDisabled" ResourceKey="ControlFillDisabled" />
+    <StaticResource x:Key="ComboBoxBackgroundUnfocused" ResourceKey="ControlFillHover" />
+    <StaticResource x:Key="ComboBoxBackgroundBorderBrushUnfocused" ResourceKey="ControlStroke" />
+    <StaticResource x:Key="ComboBoxBorderBrush" ResourceKey="ControlStroke" />
+    <StaticResource x:Key="ComboBoxBorderBrushPointerOver" ResourceKey="ControlStroke" />
+    <StaticResource x:Key="ComboBoxBorderBrushPressed" ResourceKey="ControlStrokeSubtle" />
+    <StaticResource x:Key="ComboBoxBorderBrushDisabled" ResourceKey="ControlStrokeSubtle" />
+    <StaticResource x:Key="ComboBoxForegroundDisabled" ResourceKey="TextDisabled" />
+    <StaticResource x:Key="ComboBoxDropDownGlyphForeground" ResourceKey="TextSecondary" />
+    <StaticResource x:Key="ComboBoxDropDownBackground" ResourceKey="FlyoutBackground" />
+    <StaticResource x:Key="ComboBoxDropDownBorderBrush" ResourceKey="FlyoutStroke" />
+    <StaticResource x:Key="ComboBoxItemBackgroundPointerOver" ResourceKey="SubtleFillHover" />
+    <StaticResource x:Key="ComboBoxItemBackgroundPressed" ResourceKey="SubtleFillPressed" />
+    <StaticResource x:Key="ComboBoxItemBackgroundSelected" ResourceKey="SubtleFillSelected" />
+    <StaticResource x:Key="ComboBoxItemBackgroundSelectedPointerOver" ResourceKey="SubtleFillHover" />
+    <StaticResource x:Key="ComboBoxItemBackgroundSelectedPressed" ResourceKey="SubtleFillPressed" />
+
+    <!-- Menus, flyouts, tool tips. -->
+    <StaticResource x:Key="MenuFlyoutPresenterBackground" ResourceKey="FlyoutBackground" />
+    <StaticResource x:Key="MenuFlyoutPresenterBorderBrush" ResourceKey="FlyoutStroke" />
+    <StaticResource x:Key="MenuFlyoutItemBackgroundPointerOver" ResourceKey="SubtleFillHover" />
+    <StaticResource x:Key="MenuFlyoutItemBackgroundPressed" ResourceKey="SubtleFillPressed" />
+    <StaticResource x:Key="FlyoutPresenterBackground" ResourceKey="FlyoutBackground" />
+    <StaticResource x:Key="AutoCompleteBoxSuggestionsListBackground" ResourceKey="FlyoutBackground" />
+    <StaticResource x:Key="AutoCompleteBoxSuggestionsListBorderBrush" ResourceKey="FlyoutStroke" />
+
+    <!-- Check boxes and toggle switches. -->
+    <StaticResource x:Key="CheckBoxCheckBackgroundFillUnchecked" ResourceKey="ControlAltFill" />
+    <StaticResource x:Key="CheckBoxCheckBackgroundFillUncheckedPointerOver" ResourceKey="ControlAltFillHover" />
+    <StaticResource x:Key="CheckBoxCheckBackgroundFillUncheckedPressed" ResourceKey="ControlAltFillPressed" />
+    <StaticResource x:Key="CheckBoxCheckBackgroundStrokeUnchecked" ResourceKey="ControlStrongStroke" />
+    <StaticResource x:Key="CheckBoxCheckBackgroundStrokeUncheckedPointerOver" ResourceKey="ControlStrongStroke" />
+    <StaticResource x:Key="CheckBoxCheckBackgroundStrokeUncheckedPressed" ResourceKey="ControlStrongStrokeDisabled" />
+    <StaticResource x:Key="CheckBoxCheckBackgroundStrokeUncheckedDisabled" ResourceKey="ControlStrongStrokeDisabled" />
+    <StaticResource x:Key="CheckBoxCheckBackgroundFillChecked" ResourceKey="AccentFill" />
+    <StaticResource x:Key="CheckBoxCheckBackgroundFillCheckedPointerOver" ResourceKey="AccentFillHover" />
+    <StaticResource x:Key="CheckBoxCheckBackgroundFillCheckedPressed" ResourceKey="AccentFillPressed" />
+    <StaticResource x:Key="CheckBoxCheckBackgroundFillCheckedDisabled" ResourceKey="AccentFillDisabled" />
+    <StaticResource x:Key="CheckBoxCheckBackgroundStrokeChecked" ResourceKey="AccentFill" />
+    <StaticResource x:Key="CheckBoxCheckBackgroundStrokeCheckedPointerOver" ResourceKey="AccentFillHover" />
+    <StaticResource x:Key="CheckBoxCheckBackgroundStrokeCheckedPressed" ResourceKey="AccentFillPressed" />
+    <StaticResource x:Key="CheckBoxCheckBackgroundFillIndeterminate" ResourceKey="AccentFill" />
+    <StaticResource x:Key="CheckBoxCheckBackgroundFillIndeterminatePointerOver" ResourceKey="AccentFillHover" />
+    <StaticResource x:Key="CheckBoxCheckBackgroundFillIndeterminatePressed" ResourceKey="AccentFillPressed" />
+    <StaticResource x:Key="CheckBoxCheckBackgroundStrokeIndeterminate" ResourceKey="AccentFill" />
+    <StaticResource x:Key="CheckBoxCheckBackgroundStrokeIndeterminatePointerOver" ResourceKey="AccentFillHover" />
+    <StaticResource x:Key="CheckBoxCheckBackgroundStrokeIndeterminatePressed" ResourceKey="AccentFillPressed" />
+    <StaticResource x:Key="CheckBoxCheckGlyphForegroundChecked" ResourceKey="TextOnAccent" />
+    <StaticResource x:Key="CheckBoxCheckGlyphForegroundCheckedPointerOver" ResourceKey="TextOnAccent" />
+    <StaticResource x:Key="CheckBoxCheckGlyphForegroundCheckedPressed" ResourceKey="TextOnAccentPressed" />
+    <StaticResource x:Key="CheckBoxCheckGlyphForegroundCheckedDisabled" ResourceKey="TextOnAccentDisabled" />
+    <StaticResource x:Key="CheckBoxCheckGlyphForegroundIndeterminate" ResourceKey="TextOnAccent" />
+    <StaticResource x:Key="CheckBoxCheckGlyphForegroundIndeterminatePointerOver" ResourceKey="TextOnAccent" />
+    <StaticResource x:Key="CheckBoxCheckGlyphForegroundIndeterminatePressed" ResourceKey="TextOnAccentPressed" />
+    <StaticResource x:Key="CheckBoxForegroundUncheckedDisabled" ResourceKey="TextDisabled" />
+    <StaticResource x:Key="CheckBoxForegroundCheckedDisabled" ResourceKey="TextDisabled" />
+    <StaticResource x:Key="ToggleSwitchFillOff" ResourceKey="ControlAltFill" />
+    <StaticResource x:Key="ToggleSwitchFillOffPointerOver" ResourceKey="ControlAltFillHover" />
+    <StaticResource x:Key="ToggleSwitchFillOffPressed" ResourceKey="ControlAltFillPressed" />
+    <StaticResource x:Key="ToggleSwitchStrokeOff" ResourceKey="ControlStrongStroke" />
+    <StaticResource x:Key="ToggleSwitchStrokeOffPointerOver" ResourceKey="ControlStrongStroke" />
+    <StaticResource x:Key="ToggleSwitchKnobFillOff" ResourceKey="TextSecondary" />
+    <StaticResource x:Key="ToggleSwitchKnobFillOffPointerOver" ResourceKey="TextSecondary" />
+    <StaticResource x:Key="ToggleSwitchFillOn" ResourceKey="AccentFill" />
+    <StaticResource x:Key="ToggleSwitchFillOnPointerOver" ResourceKey="AccentFillHover" />
+    <StaticResource x:Key="ToggleSwitchFillOnPressed" ResourceKey="AccentFillPressed" />
+    <StaticResource x:Key="ToggleSwitchFillOnDisabled" ResourceKey="AccentFillDisabled" />
+    <StaticResource x:Key="ToggleSwitchStrokeOn" ResourceKey="AccentFill" />
+    <StaticResource x:Key="ToggleSwitchStrokeOnPointerOver" ResourceKey="AccentFillHover" />
+    <StaticResource x:Key="ToggleSwitchStrokeOnPressed" ResourceKey="AccentFillPressed" />
+    <StaticResource x:Key="ToggleSwitchKnobFillOn" ResourceKey="TextOnAccent" />
+    <StaticResource x:Key="ToggleSwitchKnobFillOnPointerOver" ResourceKey="TextOnAccent" />
+    <StaticResource x:Key="ToggleSwitchKnobFillOnPressed" ResourceKey="TextOnAccent" />
+    <StaticResource x:Key="ToggleSwitchKnobFillOnDisabled" ResourceKey="TextOnAccentDisabled" />
+
+    <!-- Selected list items: the accent itself (white text stays readable on it). -->
+    <SolidColorBrush x:Key="ListSelected" Color="{DynamicResource SystemAccentColor}" />
+    <SolidColorBrush x:Key="ListSelectedHover" Color="{DynamicResource SystemAccentColorLight1}" />
+    <SolidColorBrush x:Key="ListSelectedPressed" Color="{DynamicResource SystemAccentColorDark1}" />
+
+    <!-- Trees: a subtle highlight (the accent pipe comes from a style in Windows11.axaml). -->
+    <Thickness x:Key="TreeViewItemBorderThemeThickness">3,0,0,0</Thickness>
+    <SolidColorBrush x:Key="TreeViewItemBackgroundPointerOver" Color="#0FFFFFFF" />
+    <SolidColorBrush x:Key="TreeViewItemBackgroundPressed" Color="#0AFFFFFF" />
+    <StaticResource x:Key="TreeViewItemBackgroundSelected" ResourceKey="SubtleFillSelected" />
+    <SolidColorBrush x:Key="TreeViewItemBackgroundSelectedPointerOver" Color="#1CFFFFFF" />
+    <StaticResource x:Key="TreeViewItemBackgroundSelectedPressed" ResourceKey="SubtleFillHover" />
+
+    <!-- Tabs: WPF-UI's (normal weight, a raised box behind the selected one instead of the underline). -->
+    <x:Double x:Key="TabItemHeaderFontSize">13</x:Double>
+    <x:Double x:Key="TabItemMinHeight">30</x:Double>
+    <Thickness x:Key="TabItemHeaderMargin">10,0</Thickness>
+    <FontWeight x:Key="TabItemHeaderThemeFontWeight">Normal</FontWeight>
+    <SolidColorBrush x:Key="TabItemHeaderSelectedPipeFill" Color="Transparent" />
+    <StaticResource x:Key="TabItemHeaderForegroundUnselected" ResourceKey="TextSecondary" />
+    <StaticResource x:Key="TabItemHeaderForegroundUnselectedPointerOver" ResourceKey="TextPrimary" />
+    <StaticResource x:Key="TabItemHeaderForegroundUnselectedPressed" ResourceKey="TextSecondary" />
+    <StaticResource x:Key="TabItemHeaderForegroundSelected" ResourceKey="TextPrimary" />
+    <StaticResource x:Key="TabItemHeaderForegroundSelectedPointerOver" ResourceKey="TextPrimary" />
+    <StaticResource x:Key="TabItemHeaderForegroundSelectedPressed" ResourceKey="TextSecondary" />
+    <StaticResource x:Key="TabItemHeaderBackgroundUnselectedPointerOver" ResourceKey="SubtleFillHover" />
+    <StaticResource x:Key="TabItemHeaderBackgroundUnselectedPressed" ResourceKey="SubtleFillPressed" />
+    <StaticResource x:Key="TabItemHeaderBackgroundSelected" ResourceKey="ControlFill" />
+    <StaticResource x:Key="TabItemHeaderBackgroundSelectedPointerOver" ResourceKey="ControlFillHover" />
+    <StaticResource x:Key="TabItemHeaderBackgroundSelectedPressed" ResourceKey="ControlFillPressed" />
+</ResourceDictionary>

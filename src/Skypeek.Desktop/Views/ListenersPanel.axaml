@@ -1,0 +1,46 @@
+<UserControl x:Class="Skypeek.Desktop.Views.ListenersPanel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="using:Skypeek.Desktop.Views">
+    <StackPanel Margin="0,4,0,4">
+        <DockPanel>
+            <views:IconButton x:Name="ReloadButton" DockPanel.Dock="Right" Content="Reload" Symbol="ArrowClockwise" Padding="8,2"
+                       Click="OnReload" VerticalAlignment="Top" />
+            <TextBlock Classes="section" Text="Listeners and routing rules" Margin="0,0,0,2" />
+        </DockPanel>
+        <TextBlock Classes="caption" x:Name="StatusText" TextWrapping="Wrap" Margin="0,0,0,4" />
+        <ItemsControl x:Name="ListenerList">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <Border Classes="panel" Padding="10,6" Margin="0,0,0,6">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Classes="body" Text="{Binding Title}" FontFamily="{StaticResource MonoFont}" FontWeight="SemiBold" />
+                                <TextBlock Classes="caption" Text="{Binding Detail}" Margin="8,0,0,0" VerticalAlignment="Center" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <ItemsControl ItemsSource="{Binding Rules}" Margin="0,4,0,0">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="0,2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="56" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Classes="caption" Text="{Binding Priority}" FontFamily="{StaticResource MonoFont}" />
+                                            <StackPanel Grid.Column="1">
+                                                <TextBlock Classes="body" Text="{Binding Conditions, StringFormat='if {0}'}" TextWrapping="Wrap" />
+                                                <TextBlock Classes="caption" Text="{Binding Actions, StringFormat='→ {0}'}" TextWrapping="Wrap" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <TextBlock Classes="caption" TextWrapping="Wrap"
+                   Text="Skypeek is read-only for load balancers; change listeners, rules and targets in the AWS console." />
+    </StackPanel>
+</UserControl>

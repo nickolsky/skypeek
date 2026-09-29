@@ -76,6 +76,9 @@ public partial class DashboardView
 
     private void OnJobCompleted(Target t, JobKind k, JobState s) => Schedule();
 
+    /// <summary>Called when the tray status changes, so the tree and summary never lag behind it.</summary>
+    public void Refresh() => Schedule();
+
     private void Schedule() => Dispatcher.BeginInvoke(() =>
     {
         _debounce.Stop();

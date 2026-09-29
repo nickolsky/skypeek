@@ -224,6 +224,20 @@ public static class DashboardTreeBuilder
                 });
             }
 
+            // A failed poll is a problem in the tray; show it here too (credential problems above already explain theirs).
+            if (cred.State is not (CredentialState.Halted or CredentialState.Validating or CredentialState.Missing or CredentialState.SignInRequired))
+                foreach (var kind in Enum.GetValues<JobKind>())
+                    if (session.Scheduler.GetState(target.Id, kind) is { LastFailed: true } job)
+                    {
+                        var what = kind switch { JobKind.Catalog => "Secrets/parameters list", JobKind.Health => "Health poll", _ => "Metrics poll" };
+                        children.Add(new DashNode
+                        {
+                            Key = $"{target.Id}:job:{kind}", Kind = NodeKind.Message, Title = $"{what} failed: {job.LastError}", Level = HealthLevel.Warn, ProblemCount = 1,
+                            Payload = new MessageDetail($"{what} failed at {job.LastAttempt?.ToLocalTime():g}: {job.LastError}. " +
+                                "It is retried on the next scheduled run; use Refresh everything on the target to retry now."),
+                        });
+                    }
+
             if (health is null)
             {
                 children.Add(new DashNode { Key = $"{target.Id}:nodata", Kind = NodeKind.Message, Title = "No health data yet", Level = HealthLevel.Unknown, Payload = new MessageDetail("Waiting for the first health poll.") });

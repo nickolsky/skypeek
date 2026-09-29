@@ -161,26 +161,42 @@ public static partial class ProfileReader
         return result;
     }
 
+    /// <summary>
+    /// The CLI rewrites the cache file when it refreshes a sign-in; a half-written file must not look like a sign-out
+    /// (that would switch the profile to other keys), so unreadable JSON is retried briefly.
+    /// </summary>
     private static (string? Token, DateTime? ExpiresUtc) ReadToken(string tokenFile)
     {
-        try
+        for (var attempt = 0; ; attempt++)
         {
-            if (ReadText(tokenFile) is not { } json)
+            try
+            {
+                return ParseToken(ReadText(tokenFile));
+            }
+            catch (Exception ex) when (ex is JsonException or IOException && attempt < 5)
+            {
+                Thread.Sleep(150);
+            }
+            catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
+            {
                 return (null, null);
-            using var doc = JsonDocument.Parse(json);
-            var root = doc.RootElement;
-            var token = root.TryGetProperty("accessToken", out var t) ? t.GetString() : null;
-            DateTime? expires = null;
-            // "2026-09-29T20:00:00Z" (CLI v2) or "2026-09-29T20:00:00UTC" (older tools).
-            if (root.TryGetProperty("expiresAt", out var e) && e.GetString() is { } text
-                && DateTime.TryParse(text.Replace("UTC", "Z"), CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var parsed))
-                expires = parsed;
-            return (string.IsNullOrEmpty(token) ? null : token, expires);
+            }
         }
-        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
-        {
+    }
+
+    private static (string? Token, DateTime? ExpiresUtc) ParseToken(string? json)
+    {
+        if (json is null)
             return (null, null);
-        }
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        var token = root.TryGetProperty("accessToken", out var t) ? t.GetString() : null;
+        DateTime? expires = null;
+        // "2026-09-29T20:00:00Z" (CLI v2) or "2026-09-29T20:00:00UTC" (older tools).
+        if (root.TryGetProperty("expiresAt", out var e) && e.GetString() is { } text
+            && DateTime.TryParse(text.Replace("UTC", "Z"), CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var parsed))
+            expires = parsed;
+        return (string.IsNullOrEmpty(token) ? null : token, expires);
     }
 
     public static IReadOnlyDictionary<string, ProfileCredentials> Parse(string content)

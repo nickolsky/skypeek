@@ -98,7 +98,7 @@ public sealed partial class AwsGateway : IAwsGateway
         catch (AmazonServiceException ex) when (AwsErrorClassifier.IsAuthFailure(ex.ErrorCode))
         {
             _monitor.ReportAuthFailure(profile, creds.Fingerprint, ex.ErrorCode);
-            throw new CredentialsUnavailableException(profile, $"credentials rejected by AWS ({ex.ErrorCode})");
+            throw new CredentialsUnavailableException(profile, $"{creds.SourceText} credentials rejected by AWS ({ex.ErrorCode})");
         }
     }
 

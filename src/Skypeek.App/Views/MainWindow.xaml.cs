@@ -63,6 +63,7 @@ public partial class MainWindow
     {
         DashboardTab.Header = status.Count == 0 ? "Dashboard" : $"Dashboard ({status.Count})";
         TitleBarControl.Title = status.Count == 0 ? AppInfo.Title : $"{AppInfo.Title} — {status.Count} problem(s)";
+        _dashboard.Refresh();
     }
 
     /// <summary>On lock: drop revealed values and hide.</summary>

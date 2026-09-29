@@ -40,10 +40,12 @@ public static class TrayStatusCalculator
             if (p.State is CredentialState.Halted or CredentialState.Validating)
                 problems.Add(new Problem(0, p.Profile, "credentials", $"halted ({p.ErrorCode}) — refresh the credentials file", HealthLevel.Critical));
             else if (p.State == CredentialState.Missing)
-                problems.Add(new Problem(0, p.Profile, "credentials", "profile missing from the credentials file", HealthLevel.Critical));
+                problems.Add(new Problem(0, p.Profile, "credentials", "profile missing from the credentials and config files", HealthLevel.Critical));
+            else if (p.State == CredentialState.SignInRequired)
+                problems.Add(new Problem(0, p.Profile, "credentials", $"AWS SSO sign-in required — run aws sso login --profile {p.Profile}", HealthLevel.Critical));
         }
 
-        var halted = profiles.Where(p => p.State is CredentialState.Halted or CredentialState.Validating or CredentialState.Missing)
+        var halted = profiles.Where(p => p.State is CredentialState.Halted or CredentialState.Validating or CredentialState.Missing or CredentialState.SignInRequired)
             .Select(p => p.Profile).ToHashSet();
         foreach (var target in byId.Values.Where(t => !halted.Contains(t.ProfileName)))
             foreach (var kind in Enum.GetValues<JobKind>())

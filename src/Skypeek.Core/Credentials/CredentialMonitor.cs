@@ -9,6 +9,8 @@ public enum CredentialState
     Halted,
     Validating,
     Missing,
+    /// <summary>SSO profile without a valid cached token: run <c>aws sso login</c>.</summary>
+    SignInRequired,
 }
 
 public sealed record ProfileStatus(string Profile, CredentialState State, DateTime? HaltedAtUtc, string? ErrorCode, DateTime? LastSuccessUtc);
@@ -20,7 +22,7 @@ public sealed class CredentialsUnavailableException(string profile, string reaso
 }
 
 /// <summary>
-/// Tracks credential health per profile. When AWS rejects a profile's credentials the profile is halted and the
+/// Tracks credential health per profile (credentials file profiles and SSO profiles from the config file). When AWS rejects a profile's credentials the profile is halted and the
 /// hash of the rejected credentials is persisted. No further calls are made for that profile until the credentials
 /// file contains different credentials for it (hash change), which are then verified with sts:GetCallerIdentity.
 /// </summary>
@@ -30,6 +32,8 @@ public sealed class CredentialMonitor : IDisposable
     private static readonly TimeSpan PollInterval = TimeSpan.FromMinutes(1);
 
     private readonly string _path;
+    private readonly string? _configPath;
+    private readonly string? _ssoCacheDirectory;
     private readonly ICredentialHaltStore _store;
     private readonly ICredentialValidator _validator;
     private readonly Func<string, string?> _regionResolver;
@@ -39,13 +43,18 @@ public sealed class CredentialMonitor : IDisposable
     private readonly HashSet<string> _validating = new(StringComparer.Ordinal);
 
     private IReadOnlyDictionary<string, ProfileCredentials> _profiles = new Dictionary<string, ProfileCredentials>();
-    private FileSystemWatcher? _watcher;
+    private readonly List<FileSystemWatcher> _watchers = [];
     private Timer? _debounce;
     private Timer? _poll;
 
-    public CredentialMonitor(string path, ICredentialHaltStore store, ICredentialValidator validator, Func<string, string?> regionResolver)
+    /// <param name="configPath">~/.aws/config for SSO profiles; null reads only the credentials file.</param>
+    /// <param name="ssoCacheDirectory">Where <c>aws sso login</c> caches tokens (~/.aws/sso/cache).</param>
+    public CredentialMonitor(string path, ICredentialHaltStore store, ICredentialValidator validator, Func<string, string?> regionResolver,
+        string? configPath = null, string? ssoCacheDirectory = null)
     {
         _path = path;
+        _configPath = configPath;
+        _ssoCacheDirectory = ssoCacheDirectory;
         _store = store;
         _validator = validator;
         _regionResolver = regionResolver;
@@ -56,6 +65,7 @@ public sealed class CredentialMonitor : IDisposable
     public event Action? StatusChanged;
 
     public string CredentialsPath => _path;
+    public string? ConfigPath => _configPath;
 
     public IReadOnlyDictionary<string, ProfileCredentials> Profiles
     {
@@ -73,24 +83,33 @@ public sealed class CredentialMonitor : IDisposable
 
         if (watch)
         {
-            var dir = Path.GetDirectoryName(_path);
-            if (dir is not null && Directory.Exists(dir))
-            {
-                _watcher = new FileSystemWatcher(dir, Path.GetFileName(_path))
-                {
-                    NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size | NotifyFilters.FileName | NotifyFilters.CreationTime,
-                    EnableRaisingEvents = true,
-                };
-                _watcher.Changed += (_, _) => ScheduleReload();
-                _watcher.Created += (_, _) => ScheduleReload();
-                _watcher.Renamed += (_, _) => ScheduleReload();
-            }
+            Watch(Path.GetDirectoryName(_path), Path.GetFileName(_path));
+            if (_configPath is not null)
+                Watch(Path.GetDirectoryName(_configPath), Path.GetFileName(_configPath));
+            // A new `aws sso login` rewrites the token file.
+            if (_ssoCacheDirectory is not null)
+                Watch(_ssoCacheDirectory, "*.json");
             _debounce = new Timer(_ => _ = ReloadAsync(), null, Timeout.Infinite, Timeout.Infinite);
             // Fallback in case the watcher misses an event (network drives, atomic replace by some tools).
             _poll = new Timer(_ => _ = ReloadAsync(), null, PollInterval, PollInterval);
         }
 
         return ReloadAsync();
+    }
+
+    private void Watch(string? directory, string filter)
+    {
+        if (directory is null || !Directory.Exists(directory))
+            return;
+        var watcher = new FileSystemWatcher(directory, filter)
+        {
+            NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.Size | NotifyFilters.FileName | NotifyFilters.CreationTime,
+            EnableRaisingEvents = true,
+        };
+        watcher.Changed += (_, _) => ScheduleReload();
+        watcher.Created += (_, _) => ScheduleReload();
+        watcher.Renamed += (_, _) => ScheduleReload();
+        _watchers.Add(watcher);
     }
 
     private void ScheduleReload() => _debounce?.Change(DebounceDelay, Timeout.InfiniteTimeSpan);
@@ -101,7 +120,7 @@ public sealed class CredentialMonitor : IDisposable
         IReadOnlyDictionary<string, ProfileCredentials> profiles;
         try
         {
-            profiles = ProfileReader.ReadFile(_path);
+            profiles = ProfileReader.ReadAll(_path, _configPath, _ssoCacheDirectory);
         }
         catch (Exception)
         {
@@ -127,7 +146,11 @@ public sealed class CredentialMonitor : IDisposable
         lock (_gate)
         {
             if (!_profiles.TryGetValue(profile, out var creds))
-                throw new CredentialsUnavailableException(profile, "not found in the credentials file");
+                throw new CredentialsUnavailableException(profile, "not found in the credentials or config file");
+
+            // Nothing to send to AWS without a token; no call is made until `aws sso login` writes one.
+            if (creds.Sso is { } sso && !sso.IsSignedIn(DateTime.UtcNow))
+                throw new CredentialsUnavailableException(profile, SignInMessage(profile, sso));
 
             if (_halts.TryGetValue(profile, out var halt))
             {
@@ -139,6 +162,10 @@ public sealed class CredentialMonitor : IDisposable
             return creds;
         }
     }
+
+    public static string SignInMessage(string profile, SsoProfile sso) =>
+        (sso.AccessToken is null ? "not signed in to AWS SSO" : $"AWS SSO sign-in expired at {sso.TokenExpiresUtc?.ToLocalTime():g}")
+        + $"; run `aws sso login --profile {profile}`";
 
     public bool IsHalted(string profile)
     {
@@ -220,8 +247,10 @@ public sealed class CredentialMonitor : IDisposable
         {
             _lastSuccess.TryGetValue(profile, out var ok);
             DateTime? lastOk = ok == default ? null : ok;
-            if (!_profiles.ContainsKey(profile))
+            if (!_profiles.TryGetValue(profile, out var creds))
                 return new ProfileStatus(profile, CredentialState.Missing, null, null, lastOk);
+            if (creds.Sso is { } sso && !sso.IsSignedIn(DateTime.UtcNow))
+                return new ProfileStatus(profile, CredentialState.SignInRequired, sso.TokenExpiresUtc, sso.AccessToken is null ? "not signed in" : "SSO session expired", lastOk);
             if (_validating.Contains(profile))
                 return new ProfileStatus(profile, CredentialState.Validating, _halts.GetValueOrDefault(profile)?.HaltedAtUtc, null, lastOk);
             if (_halts.TryGetValue(profile, out var halt))
@@ -239,7 +268,8 @@ public sealed class CredentialMonitor : IDisposable
 
     public void Dispose()
     {
-        _watcher?.Dispose();
+        foreach (var watcher in _watchers)
+            watcher.Dispose();
         _debounce?.Dispose();
         _poll?.Dispose();
     }

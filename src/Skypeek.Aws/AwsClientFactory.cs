@@ -34,8 +34,8 @@ public sealed class AwsClientSet : IDisposable
     public AwsClientSet(ProfileCredentials creds, string region)
     {
         Fingerprint = creds.Fingerprint;
-        _credentials = creds.SessionToken is null
-            ? new BasicAWSCredentials(creds.AccessKeyId, creds.SecretAccessKey)
+        _credentials = creds.Sso is { } sso ? new SsoRoleCredentials(sso)
+            : creds.SessionToken is null ? new BasicAWSCredentials(creds.AccessKeyId, creds.SecretAccessKey)
             : new SessionAWSCredentials(creds.AccessKeyId, creds.SecretAccessKey, creds.SessionToken);
         _region = RegionEndpoint.GetBySystemName(region);
 
@@ -82,6 +82,7 @@ public sealed class AwsClientSet : IDisposable
         if (_sts.IsValueCreated) _sts.Value.Dispose();
         if (_logs.IsValueCreated) _logs.Value.Dispose();
         if (_ec2.IsValueCreated) _ec2.Value.Dispose();
+        (_credentials as IDisposable)?.Dispose();
         if (_rds.IsValueCreated) _rds.Value.Dispose();
         if (_elastiCache.IsValueCreated) _elastiCache.Value.Dispose();
     }

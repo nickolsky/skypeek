@@ -46,6 +46,8 @@ public static class AwsErrorClassifier
         "SignatureDoesNotMatch",
         "InvalidAccessKeyId",
         "AuthFailure",
+        // sso:GetRoleCredentials with an expired or revoked sign-in token.
+        "UnauthorizedException",
     };
 
     public static bool IsAuthFailure(string? errorCode) => errorCode is not null && AuthFailureCodes.Contains(errorCode);

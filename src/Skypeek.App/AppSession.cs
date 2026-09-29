@@ -21,7 +21,8 @@ public sealed class AppSession : IDisposable
         log.AttachStore(Repository);
 
         Settings = new SettingsService(Repository);
-        Monitor = new CredentialMonitor(ProfileReader.DefaultPath, Repository, new StsValidator(), Settings.RegionForProfile);
+        Monitor = new CredentialMonitor(ProfileReader.DefaultPath, Repository, new StsValidator(), Settings.RegionForProfile,
+            ProfileReader.DefaultConfigPath, ProfileReader.DefaultSsoCacheDirectory);
         Clients = new AwsClientFactory();
         Gateway = new AwsGateway(Monitor, Clients, log, approver);
         Catalog = new CatalogService(Gateway, Repository, Settings, Monitor);

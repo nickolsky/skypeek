@@ -34,6 +34,20 @@
         </DataTemplate>
 
         <!-- ============ details panel templates (picked by payload type) ============ -->
+        <DataTemplate DataType="{x:Type views:SsoSignInDetail}">
+            <StackPanel>
+                <TextBlock Text="{Binding Text}" FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource TextStrong}" TextWrapping="Wrap" />
+                <TextBlock Style="{StaticResource Body}" TextWrapping="Wrap" Margin="0,6,0,8"
+                           Text="This profile signs in through AWS IAM Identity Center (SSO). Refreshes for it are paused and resume automatically as soon as you sign in again; nothing is sent to AWS until then." />
+                <WrapPanel Margin="0,0,0,6">
+                    <ui:Button Content="Sign in" Icon="{ui:SymbolIcon PersonKey20}" Appearance="Primary" Click="OnSsoSignIn" Margin="0,0,6,4"
+                               ToolTip="Runs aws sso login in a console window; approve the sign-in in your browser" />
+                    <ui:Button Content="Copy command" Icon="{ui:SymbolIcon Copy24}" Click="OnCopyText" Tag="{Binding Command}" Margin="0,0,6,4" />
+                </WrapPanel>
+                <TextBlock Text="{Binding Command}" Style="{StaticResource Caption}" FontFamily="{StaticResource MonoFont}" />
+            </StackPanel>
+        </DataTemplate>
+
         <DataTemplate DataType="{x:Type views:MessageDetail}">
             <TextBlock Text="{Binding Text}" Style="{StaticResource Body}" TextWrapping="Wrap" />
         </DataTemplate>

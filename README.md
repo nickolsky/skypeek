@@ -32,6 +32,13 @@ dotnet publish src/Skypeek.App -c Release -o publish
 
    Closing the window hides it to the tray.
 
+## Where credentials come from
+
+- **Credentials file** (`~/.aws/credentials`, or `AWS_SHARED_CREDENTIALS_FILE`): static or temporary keys, as before.
+- **AWS SSO / IAM Identity Center** profiles created with `aws configure sso` (in `~/.aws/config`, or `AWS_CONFIG_FILE`; both the `[sso-session]` and the older per-profile layout). Skypeek reads the token that `aws sso login` caches in `~/.aws/sso/cache` and exchanges it for role credentials with `sso:GetRoleCredentials` (a logged, allowlisted read; the token is never logged or stored). It never refreshes or writes the token itself.
+  - When the sign-in has expired, the profile shows **AWS SSO sign-in required**: nothing is sent to AWS, the tray turns red, and the dashboard offers **Sign in** (runs `aws sso login --profile …` in a console; approve in your browser). The profile resumes by itself when the new token appears.
+- **A name in both:** SSO is used while you are signed in, the credentials-file keys otherwise. Settings shows which source each profile uses.
+
 ## Two keys per target
 
 Each target has a **read-only profile**, used for everything including background refresh, and an optional **elevated profile**.
@@ -157,7 +164,7 @@ When AWS rejects a profile's credentials (`ExpiredToken`, `InvalidClientTokenId`
 
 1. Halts the profile and stores a SHA-256 hash of the rejected `key id | secret | session token`. The halt persists across restarts.
 2. Skips every later operation for that profile **without calling AWS**. Skips show as `Skipped` in the request log, and the tray icon turns red.
-3. Watches the credentials file, with a one-minute polling fallback. When that profile's hash changes, it verifies the new credentials with `sts:GetCallerIdentity`, checking that the account matches the profile name, and then resumes and runs any overdue refreshes.
+3. Watches the credentials file (and for SSO profiles the config file and token cache), with a one-minute polling fallback. When that profile's hash changes, it verifies the new credentials with `sts:GetCallerIdentity`, checking that the account matches the profile name, and then resumes and runs any overdue refreshes.
 
 ## Tray icon
 

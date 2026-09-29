@@ -25,17 +25,33 @@ public partial class UsagePanel
         set => SetValue(ResourceProperty, value);
     }
 
-    public UsagePanel() => InitializeComponent();
+    private readonly string _intro;
+
+    public UsagePanel()
+    {
+        InitializeComponent();
+        _intro = StatusText.Text;
+    }
 
     /// <summary>Called on lock: usage figures are cleared with everything else on screen.</summary>
     public static void ClearCache() => Reports.Clear();
 
+    /// <summary>
+    /// WPF reuses this panel when the details switch to another resource of the same type, so everything shown must
+    /// come from that resource's own cached report, or be reset.
+    /// </summary>
     private void ShowCached()
     {
         if (Resource is { } r && Reports.TryGetValue(r.ResourceKey, out var report) && DateTime.UtcNow - report.CreatedUtc < CacheFor)
+        {
             Show(report);
-        else
-            ResultPanel.Visibility = Visibility.Collapsed;
+            return;
+        }
+        StatusText.Text = _intro;
+        AnalyzeButton.Content = "Analyze last 30 days";
+        AnalyzeButton.IsEnabled = true;
+        SeriesList.ItemsSource = null;
+        ResultPanel.Visibility = Visibility.Collapsed;
     }
 
     private async void OnAnalyze(object sender, RoutedEventArgs e)
@@ -48,17 +64,19 @@ public partial class UsagePanel
         {
             var report = await session.Health.AnalyzeUsageAsync(target, resource, Days, CancellationToken.None);
             Reports[resource.ResourceKey] = report;
-            // The panel may have been rebuilt for a newer snapshot of the same resource meanwhile.
+            // The panel may show another resource by now (or a newer snapshot of this one).
             if (Resource?.ResourceKey == resource.ResourceKey)
                 Show(report);
         }
         catch (Exception ex)
         {
-            StatusText.Text = $"Could not read usage: {(ex is Amazon.Runtime.AmazonServiceException a ? $"{a.ErrorCode}: {a.Message}" : ex.Message)}";
+            if (Resource?.ResourceKey == resource.ResourceKey)
+                StatusText.Text = $"Could not read usage: {(ex is Amazon.Runtime.AmazonServiceException a ? $"{a.ErrorCode}: {a.Message}" : ex.Message)}";
         }
         finally
         {
-            AnalyzeButton.IsEnabled = true;
+            if (Resource?.ResourceKey == resource.ResourceKey)
+                AnalyzeButton.IsEnabled = true;
         }
     }
 

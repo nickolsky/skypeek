@@ -10,6 +10,7 @@ using Rds = Amazon.RDS.Model;
 using Eb = Amazon.ElasticBeanstalk.Model;
 using Secrets = Amazon.SecretsManager.Model;
 using Ssm = Amazon.SimpleSystemsManagement.Model;
+using Sso = Amazon.SSO.Model;
 using Sts = Amazon.SecurityToken.Model;
 
 namespace Skypeek.Aws;
@@ -28,6 +29,7 @@ public static class ReadOnlyGuard
     public static readonly IReadOnlySet<Type> AllowedRequestTypes = new HashSet<Type>
     {
         typeof(Sts.GetCallerIdentityRequest),
+        typeof(Sso.GetRoleCredentialsRequest), // SSO profiles: exchange the sign-in token for role credentials
 
         typeof(Secrets.ListSecretsRequest),
         typeof(Secrets.DescribeSecretRequest),
@@ -132,6 +134,7 @@ public static class ReadOnlyGuard
     public static string ServiceName(AmazonWebServiceRequest? request) => request?.GetType().Namespace switch
     {
         "Amazon.SecurityToken.Model" => "sts",
+        "Amazon.SSO.Model" => "sso",
         "Amazon.SecretsManager.Model" => "secretsmanager",
         "Amazon.SimpleSystemsManagement.Model" => "ssm",
         "Amazon.ElasticBeanstalk.Model" => "elasticbeanstalk",

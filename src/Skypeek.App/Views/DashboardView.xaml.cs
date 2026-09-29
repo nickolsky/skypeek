@@ -544,6 +544,30 @@ public partial class DashboardView
         return null;
     }
 
+    /// <summary>Runs the AWS CLI sign-in in its own console; the token cache watcher resumes the profile afterwards.</summary>
+    private void OnSsoSignIn(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not SsoSignInDetail detail)
+            return;
+        try
+        {
+            // A console program started from this GUI app gets its own console window.
+            var start = new ProcessStartInfo("aws") { UseShellExecute = false, CreateNoWindow = false };
+            start.ArgumentList.Add("sso");
+            start.ArgumentList.Add("login");
+            start.ArgumentList.Add("--profile");
+            start.ArgumentList.Add(detail.Profile);
+            Process.Start(start);
+            ActionStatus.Foreground = (System.Windows.Media.Brush)FindResource("TextNormal");
+            ActionStatus.Text = $"Approve the sign-in in your browser; {detail.Profile} resumes automatically afterwards.";
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            ActionStatus.Foreground = LevelToBrushConverter.Critical;
+            ActionStatus.Text = $"The AWS CLI (aws) was not found. Install it, or run: {detail.Command}";
+        }
+    }
+
     private void OnForceNewDeployment(object sender, RoutedEventArgs e)
     {
         if (ResourceFrom(sender) is EcsServiceStatus svc && _session.Settings.FindTarget(svc.TargetId) is { } target)

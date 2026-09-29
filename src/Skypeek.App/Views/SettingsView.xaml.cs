@@ -285,8 +285,9 @@ public partial class SettingsView
         TargetEnabled.IsChecked = t.Enabled;
         var profile = _session.Monitor.Profiles.GetValueOrDefault(t.ProfileName);
         ProfileText.Text = profile is null
-            ? $"Read-only: {t.ProfileName} — not found in the credentials file"
-            : $"Read-only: {t.ProfileName} · account {profile.AccountId ?? "?"} · role {profile.RoleName ?? "?"}{(profile.IsReadOnly ? "" : "  ⚠ not a read-only role")}";
+            ? $"Read-only: {t.ProfileName} — not found in the credentials or config file"
+            : $"Read-only: {t.ProfileName} · account {profile.AccountId ?? "?"} · role {profile.RoleName ?? "?"} · {profile.SourceText}"
+              + (profile.IsReadOnly ? "" : "  ⚠ not a read-only role");
         SelectElevated(t.ElevatedProfileName);
         FeatSecrets.IsChecked = t.SecretsEnabled;
         FeatParams.IsChecked = t.ParamsEnabled;

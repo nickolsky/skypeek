@@ -38,6 +38,8 @@
                                         <DataTemplate>
                                             <StackPanel Orientation="Horizontal">
                                                 <TextBlock Text="{Binding Name}" />
+                                                <TextBlock Text="  · SSO" Foreground="{StaticResource TextMuted}"
+                                                           Visibility="{Binding IsSso, Converter={StaticResource BoolToVisibility}}" />
                                                 <TextBlock Text="  ⚠ not a read-only role" Foreground="#FFFFB86B"
                                                            Visibility="{Binding IsReadOnly, Converter={StaticResource InverseBoolToVisibility}}" />
                                             </StackPanel>

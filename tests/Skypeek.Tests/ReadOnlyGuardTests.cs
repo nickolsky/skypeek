@@ -267,6 +267,7 @@ public class ReadOnlyGuardTests
             typeof(Amazon.EC2.AmazonEC2Client).Assembly,
             typeof(Amazon.RDS.AmazonRDSClient).Assembly,
             typeof(Amazon.ElastiCache.AmazonElastiCacheClient).Assembly,
+            typeof(Amazon.SSO.AmazonSSOClient).Assembly,
         };
 
         var forbidden = sdkAssemblies

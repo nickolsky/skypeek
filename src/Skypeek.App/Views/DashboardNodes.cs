@@ -113,6 +113,12 @@ public sealed class AlarmDetail
 
 public sealed record MessageDetail(string Text);
 
+/// <summary>An SSO profile that needs <c>aws sso login</c>; the details offer to run it.</summary>
+public sealed record SsoSignInDetail(string Profile, string Text)
+{
+    public string Command => $"aws sso login --profile {Profile}";
+}
+
 /// <summary>One version of an EB application and where it runs.</summary>
 public sealed record EbVersionRow(EbApplicationVersion Version, string DeployedTo, bool IsDeployed, bool IsLatest)
 {
@@ -194,10 +200,22 @@ public static class DashboardTreeBuilder
             var account = session.Catalog.AccountOf(target.ProfileName);
             var children = new List<DashNode>();
 
-            if (cred.State is CredentialState.Halted or CredentialState.Validating or CredentialState.Missing)
+            if (cred.State is CredentialState.SignInRequired
+                || (cred.State is CredentialState.Halted && session.Monitor.Profiles.GetValueOrDefault(target.ProfileName)?.IsSso == true))
+            {
+                var text = cred.State == CredentialState.SignInRequired
+                    ? $"AWS SSO sign-in required for {target.ProfileName} ({cred.ErrorCode})"
+                    : $"AWS SSO credentials rejected ({cred.ErrorCode}) — sign in again";
+                children.Add(new DashNode
+                {
+                    Key = $"{target.Id}:cred", Kind = NodeKind.Message, Title = text, Level = HealthLevel.Critical, ProblemCount = 1,
+                    Payload = new SsoSignInDetail(target.ProfileName, text),
+                });
+            }
+            else if (cred.State is CredentialState.Halted or CredentialState.Validating or CredentialState.Missing)
             {
                 var text = cred.State == CredentialState.Missing
-                    ? $"Profile {target.ProfileName} is missing from the credentials file"
+                    ? $"Profile {target.ProfileName} is missing from the credentials and config files"
                     : $"Credentials halted ({cred.ErrorCode}) — refresh the credentials file";
                 children.Add(new DashNode
                 {
@@ -695,7 +713,8 @@ public static class DashboardTreeBuilder
     {
         CredentialState.Halted => $"halted ({p.ErrorCode}) since {p.HaltedAtUtc?.ToLocalTime():g} — waiting for the credentials file to change",
         CredentialState.Validating => "credentials changed — verifying…",
-        CredentialState.Missing => "not in the credentials file",
+        CredentialState.Missing => "not in the credentials or config file",
+        CredentialState.SignInRequired => $"AWS SSO sign-in required ({p.ErrorCode}{(p.HaltedAtUtc is { } at ? $" at {at.ToLocalTime():g}" : "")}) — run aws sso login",
         CredentialState.Valid => $"ok (last success {p.LastSuccessUtc?.ToLocalTime():g})",
         _ => "not used yet",
     };

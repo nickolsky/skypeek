@@ -11,6 +11,7 @@ using Rds = Amazon.RDS.Model;
 using Eb = Amazon.ElasticBeanstalk.Model;
 using Secrets = Amazon.SecretsManager.Model;
 using Ssm = Amazon.SimpleSystemsManagement.Model;
+using Sso = Amazon.SSO.Model;
 
 namespace Skypeek.Aws;
 
@@ -117,6 +118,8 @@ public static class RequestParameterRedactor
         ElastiCache.DescribeCacheClustersRequest r => Join(("CacheClusterId", r.CacheClusterId), ("ShowCacheNodeInfo", r.ShowCacheNodeInfo), ("Marker", Token(r.Marker))),
         ElastiCache.DescribeServerlessCachesRequest r => Join(("ServerlessCacheName", r.ServerlessCacheName), ("NextToken", Token(r.NextToken))),
         ElastiCache.DescribeEventsRequest r => Join(("SourceIdentifier", r.SourceIdentifier), ("StartTime", r.StartTime?.ToString("u")), ("Marker", Token(r.Marker))),
+        // Never the access token.
+        Sso.GetRoleCredentialsRequest r => Join(("AccountId", r.AccountId), ("RoleName", r.RoleName)),
         _ => "",
     };
 

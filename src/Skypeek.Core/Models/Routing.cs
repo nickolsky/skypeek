@@ -33,6 +33,39 @@ public sealed class RouteInfo
     [JsonIgnore] public string Text => $"{Destination} → {TargetText}{(IsBlackhole ? " (blackhole)" : "")}{(Origin == "EnableVgwRoutePropagation" ? " (propagated)" : "")}";
 }
 
+public sealed class NetworkAclEntryInfo
+{
+    public int RuleNumber { get; init; }
+    public bool Egress { get; init; }
+    /// <summary>"-1" (all), "6" (TCP), "17" (UDP), "1" (ICMP), "58" (ICMPv6) or another protocol number.</summary>
+    public string Protocol { get; init; } = "-1";
+    public int? FromPort { get; init; }
+    public int? ToPort { get; init; }
+    public string? Cidr { get; init; }
+    public bool Allow { get; init; }
+
+    [JsonIgnore] public string Text => $"#{(RuleNumber == 32767 ? "*" : RuleNumber.ToString())} {(Allow ? "allow" : "deny")} {NetworkRules.ProtocolText(Protocol)} {NetworkRules.PortText(Protocol, FromPort, ToPort)} {(Egress ? "to" : "from")} {Cidr}";
+}
+
+public sealed class NetworkAclInfo
+{
+    public string Id { get; init; } = "";
+    public string? Name { get; init; }
+    public string VpcId { get; init; } = "";
+    public bool IsDefault { get; init; }
+    public List<string> SubnetIds { get; init; } = [];
+    public List<NetworkAclEntryInfo> Entries { get; init; } = [];
+
+    [JsonIgnore] public string Title => Name is { Length: > 0 } n ? $"{n} ({Id})" : Id;
+}
+
+public sealed class PrefixListInfo
+{
+    public string Id { get; init; } = "";
+    public string? Name { get; init; }
+    public List<string> Cidrs { get; init; } = [];
+}
+
 public sealed class InternetGatewayInfo
 {
     public string Id { get; init; } = "";

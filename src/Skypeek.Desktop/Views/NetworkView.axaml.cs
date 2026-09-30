@@ -70,6 +70,20 @@ public partial class NetworkView : UserControl
         _selectedKey = null;
     }
 
+    /// <summary>Selects any node by key (its parents open).</summary>
+    public void Reveal(string key)
+    {
+        _revealKey = key;
+        SearchBox.Text = "";
+        Rebuild();
+    }
+
+    private void OnAnalyzeReach(object? sender, RoutedEventArgs e)
+    {
+        if (TopLevel.GetTopLevel(this) is MainWindow main)
+            main.OpenReach((sender as Control)?.Tag as string);
+    }
+
     /// <summary>Opens a security group (from an EC2 instance or load balancer on the dashboard).</summary>
     public void Open(Target target, string securityGroupId)
     {
@@ -104,8 +118,16 @@ public partial class NetworkView : UserControl
             var roots = NetworkTreeBuilder.Build(_session);
             var query = SearchBox.Text?.Trim() ?? "";
             _searching = query.Length > 0;
-            if (_searching)
-                roots = DashboardTreeBuilder.Filter(roots, query);
+            var match = NetworkQuery.Parse(query);
+            IncludeWorld.IsVisible = match?.Kind == NetworkQueryKind.Address;
+            if (match is not null)
+                roots = ShowMatches(roots, match);
+            else
+            {
+                MatchPanel.IsVisible = false;
+                if (_searching)
+                    roots = DashboardTreeBuilder.Filter(roots, query);
+            }
 
             if (_revealKey is { } reveal && FindPath(roots, reveal) is { } path)
             {
@@ -145,6 +167,74 @@ public partial class NetworkView : UserControl
         {
             _rebuilding = false;
         }
+    }
+
+    /// <summary>
+    /// An IP, CIDR or sg-… search: the results panel says what has the address and which rules match (a rule for
+    /// 10.0.0.0/16 matches 10.0.4.2 although the text differs); the tree keeps just those interfaces and groups.
+    /// </summary>
+    private List<DashNode> ShowMatches(List<DashNode> roots, NetworkQuery query)
+    {
+        var result = NetworkSearch.Search(_session.Network.Snapshot(), query, IncludeWorld.IsChecked == true);
+        var targets = _session.Settings.Targets.ToDictionary(t => t.Id, t => t.DisplayName);
+        string T(long id) => targets.GetValueOrDefault(id) ?? "?";
+        var rows = new List<SearchRow>();
+        foreach (var m in result.Interfaces)
+            rows.Add(new SearchRow(m.Interface.PrivateIp ?? m.Interface.Id, $"{m.Interface.Owner} · {m.Interface.Id} · {m.Interface.SubnetId} · {T(m.TargetId)}",
+                NetworkTreeBuilder.InterfaceKey(m.TargetId, m.Interface.Id)));
+        foreach (var g in result.Groups)
+            rows.Add(new SearchRow(g.Group.Title, $"{g.Group.Id} · {(query.Kind == NetworkQueryKind.Group ? "the group" : $"a group of {query.Text}")} · {T(g.TargetId)}",
+                NetworkTreeBuilder.SecurityGroupKey(g.TargetId, g.Group.Id)));
+        foreach (var r in result.Rules.OrderBy(r => r.Rule.IsEgress).ThenBy(r => r.Group.Name, StringComparer.OrdinalIgnoreCase))
+            rows.Add(new SearchRow(r.Group.Title, r.Text, NetworkTreeBuilder.SecurityGroupKey(r.TargetId, r.Group.Id),
+                r.Rule.IsOpenToWorld ? HealthLevel.Warn : HealthLevel.Ok));
+        MatchList.ItemsSource = rows;
+        MatchHeader.Text = query.Kind == NetworkQueryKind.Group
+            ? $"{query.Text}: {result.Interfaces.Count} interface(s) use it, {result.Rules.Count} rule(s) in other groups allow it"
+            : $"{query.Text}: {result.Interfaces.Count} interface(s) {(query.Net!.Value.IsSingleAddress ? "have this address" : "in this range")}, "
+              + $"{result.Rules.Count} rule(s) match{(result.WorldRules > 0 && IncludeWorld.IsChecked != true ? $" ({result.WorldRules} more open to everyone, not shown)" : "")}";
+        MatchPanel.IsVisible = true;
+
+        var keys = rows.Select(r => r.Key).Where(k => k is not null).ToHashSet()!;
+        var kept = new List<DashNode>();
+        foreach (var root in roots)
+            if (KeepKeys(root, keys!))
+                kept.Add(root);
+        return kept;
+    }
+
+    private static bool KeepKeys(DashNode node, HashSet<string> keys)
+    {
+        if (keys.Contains(node.Key))
+        {
+            node.IsMatch = true;
+            node.Children.Clear();
+            return true;
+        }
+        foreach (var child in node.Children.ToList())
+            if (!KeepKeys(child, keys))
+                node.Children.Remove(child);
+        if (node.Children.Count == 0)
+            return false;
+        node.IsExpanded = true;
+        return true;
+    }
+
+    private void OnIncludeWorldChanged(object? sender, RoutedEventArgs e) => Rebuild();
+
+    private void OnMatchClick(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Control)?.Tag is not string key || Tree.ItemsSource is not IEnumerable<DashNode> roots || Flatten(roots).FirstOrDefault(n => n.Key == key) is not { } node)
+            return;
+        Tree.SelectedItem = node;
+        _selectedKey = key;
+        Details.Content = node.Payload;
+    }
+
+    private void OnShowResource(object? sender, RoutedEventArgs e)
+    {
+        if (sender is Control { Tag: string key } && TopLevel.GetTopLevel(this) is MainWindow main)
+            main.RevealResource(key);
     }
 
     private void OnNodeChanged(object? sender, PropertyChangedEventArgs e)
@@ -309,6 +399,7 @@ public partial class NetworkView : UserControl
         Status($"Refreshing {d.Group.Name}…");
         try
         {
+            using var activity = _session.Activity.Begin(d.Target.Id, d.Target.DisplayName, $"security group {d.Group.Name}");
             await _session.Network.RefreshSecurityGroupsAsync(d.Target, [d.Group.Id], CancellationToken.None);
             Status($"{d.Group.Name} refreshed at {DateTime.Now:T}.");
         }
@@ -381,6 +472,7 @@ public partial class NetworkView : UserControl
         catch (Exception ex)
         {
             Fail($"{description} failed", ex);
+            App.Current.AskToSignInIfNeeded(ex);
         }
         try
         {

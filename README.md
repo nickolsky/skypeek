@@ -91,7 +91,7 @@ The WPF app in `src/Skypeek.App` (Windows only) is the previous UI. It stays in 
 2. **Settings → Accounts & regions:** pick a profile from `~/.aws/credentials` (`%USERPROFILE%\.aws\credentials` on Windows) and one or more regions, then click **Add selected** and **Save**. Each profile + region pair is a *target*, with its own features, schedules and threshold overrides.
 3. Press **Win+Alt+A** (or click the tray / menu bar icon) to open the main window. It has four tabs:
    - **Secrets & parameters:** search on the left, details and reveal on the right.
-   - **Dashboard:** a tree of target → Elastic Beanstalk / ECS / RDS / ElastiCache / EC2 / load balancers / CloudWatch alarms, with a details panel for the selected item.
+   - **Dashboard:** a tree of target → Elastic Beanstalk / ECS / RDS / ElastiCache / EC2 / load balancers / Redshift / Site-to-Site VPN / CodeBuild / CloudFormation / CloudWatch alarms, with a details panel for the selected item. While something refreshes, the window header shows what ("Refreshing Prod: health, metrics and alarms") and the row being refreshed shows a small progress bar.
    - **Logs**
    - **Network:** target → VPC → subnets → IP addresses, and VPC → security groups.
    - **Request log**
@@ -103,7 +103,9 @@ The WPF app in `src/Skypeek.App` (Windows only) is the previous UI. It stays in 
 
 - **Credentials file** (`~/.aws/credentials`, or `AWS_SHARED_CREDENTIALS_FILE`): static or temporary keys, as before.
 - **AWS SSO / IAM Identity Center** profiles created with `aws configure sso` (in `~/.aws/config`, or `AWS_CONFIG_FILE`; both the `[sso-session]` and the older per-profile layout). Skypeek reads the token that `aws sso login` caches in `~/.aws/sso/cache` and exchanges it for role credentials with `sso:GetRoleCredentials` (a logged, allowlisted read; the token is never logged or stored). It never refreshes or writes the token itself.
-  - When the sign-in has expired, the profile shows **AWS SSO sign-in required**: nothing is sent to AWS, the tray turns red, and the dashboard offers **Sign in** (runs `aws sso login --profile …` in a console; approve in your browser). The profile resumes by itself when the new token appears.
+  - **Keeping the sign-in alive** (Settings → General, on by default): newer `[sso-session]` sign-ins keep a short-lived token that the AWS CLI renews with a refresh token whenever it runs. Shortly before the token runs out, Skypeek lets the CLI renew it: it runs `aws sts get-caller-identity` with a temporary copy of the `[sso-session]` section and a profile for a role that does not exist, so the CLI has to load (and renew) the token and the role lookup then fails harmlessly. The CLI writes its cache as usual; Skypeek still only reads it. The copy holds no secrets and is deleted right away. Nothing happens for the older per-profile layout, which has no refresh token.
+  - **When the sign-in ends** (the IAM Identity Center session is over, or renewal failed), a **Your AWS sign-in has ended** window pops up on top, also when only the tray icon is showing, with **Sign in** (runs `aws sso login --profile …`; approve in your browser) and **Later**. It closes by itself once you are signed in, and skipped refreshes run right away. While Skypeek is locked you get a notification instead and the window after unlocking. It appears once per sign-in, only for profiles a target uses as its read-only key (and not for targets whose alerts are "info only"); turn it off in Settings → General. The tray menu has **Sign in to AWS…** while a sign-in is needed.
+  - Until then the profile shows **AWS SSO sign-in required**: nothing is sent to AWS, the tray turns red, and the dashboard offers **Sign in** too.
 - **A name in both:** SSO is used while you are signed in, the credentials-file keys otherwise. Settings shows which source each profile uses.
 
 ## Two keys per target
@@ -165,7 +167,7 @@ Each target has a **read-only profile**, used for everything including backgroun
 - **ElastiCache:** replication groups show primary/reader or configuration endpoints (copy buttons), encryption and failover settings, and every node with its role, zone, endpoint, engine CPU, memory, connections, hit rate, evictions and replication lag. Sharded (cluster-mode) groups list their shards. Skypeek does not connect to Redis or read keys.
 - **Problems:** a database or cache that is not available (e.g. `storage-full`, `failed`, `incompatible-*`), broken replication, a shard without a primary, recent failure events, thresholds (CPU, connections % of max, storage used; engine CPU and memory for caches) and alarms on `AWS/RDS` or `AWS/ElastiCache` metrics. Routine states such as `backing-up` or a deliberately `stopped` database do not count. Thresholds are in Settings → Suppressions & thresholds, and per resource from **Thresholds…**.
 - **No database actions:** there is no reboot, failover, modify or delete; the architecture test checks that no such request type is referenced.
-- **Permissions:** the read-only role needs `rds:Describe*`, `rds:DownloadDBLogFilePortion` and `elasticache:Describe*` (if the role lacks one, the dashboard or Logs tab shows the access error). EC2, load balancers and the Network tab need `ec2:Describe*` and `elasticloadbalancing:Describe*` (all in AWS ReadOnlyAccess). The elevated role needs `ec2:StartInstances`, `ec2:StopInstances`, `ec2:RebootInstances` and the security group rule calls above only if you use those actions.
+- **Permissions:** the read-only role needs `rds:Describe*`, `rds:DownloadDBLogFilePortion` and `elasticache:Describe*` (if the role lacks one, the dashboard or Logs tab shows the access error). EC2, load balancers, VPN and the Network tab need `ec2:Describe*` and `ec2:GetManagedPrefixListEntries`, and `elasticloadbalancing:Describe*`; Redshift `redshift:DescribeClusters` and `redshift-serverless:ListWorkgroups`/`GetWorkgroup`; CodeBuild `codebuild:ListProjects`, `ListBuilds`, `ListBuildsForProject`, `BatchGetBuilds`; CloudFormation `cloudformation:DescribeStacks`, `DescribeStackEvents` (all in AWS ReadOnlyAccess). When a read-only role lacks one of the newer permissions, the dashboard shows "No permission — …" for that part and everything else keeps working. The elevated role needs `ec2:StartInstances`, `ec2:StopInstances`, `ec2:RebootInstances`, the security group rule calls, `secretsmanager:PutSecretValue`/`CreateSecret`/`DeleteSecret`/`RestoreSecret`, `ssm:PutParameter`/`DeleteParameter` (plus `kms:Encrypt` on the key for SecureString and secrets), and the four network insights calls, each only if you use that action.
 
 ## Elastic Beanstalk applications
 
@@ -188,14 +190,48 @@ Each target has a **read-only profile**, used for everything including backgroun
 - **Read-only:** change listeners, rules and targets with **Manage in console**; no ELB write call is on the allowlist.
 - **Calls:** `elasticloadbalancing:DescribeLoadBalancers`, `DescribeTargetGroups` and one `DescribeTargetHealth` per target group (8 at a time) with the health poll; `DescribeListeners` and `DescribeRules` when details open.
 
+## Redshift
+
+- Provisioned clusters (`redshift:DescribeClusters`) and Redshift Serverless workgroups (`redshift-serverless:ListWorkgroups`) with their endpoint (copy), size, VPC, public access, maintenance window and **security groups** (open on the Network tab). CPU (`AWS/Redshift CPUUtilization`, with the RDS CPU thresholds) and used disk (`PercentageDiskSpaceUsed`, shown only) for provisioned clusters.
+- **Problems:** `hardware-failure`, `storage-full`, `incompatible-*` or an availability of Failed is critical; Unavailable (not paused) is a warning; a paused cluster is fine. Read-only: pause, resize and reboot in the console.
+
+## Site-to-Site VPN
+
+- Every VPN connection (`ec2:DescribeVpnConnections`, and the customer gateways' addresses with `DescribeCustomerGateways`): each tunnel's outside IP, UP/DOWN, status message, since when and BGP routes, the customer gateway, the virtual private or transit gateway, and static routes.
+- **Problems:** one tunnel down is a warning (suppress it for sites that run a single tunnel on purpose), all tunnels down is critical; alarms on `AWS/VPN` for the connection.
+
+## CodeBuild
+
+- Every project with its **latest build**: number, status, the phase that failed and its message, who started it, source version, start time and duration. **Open latest build** opens its console page (with the log).
+- **A failed build is an alarm** (critical) even without any CloudWatch alarm: the latest *finished* build decides (FAILED, FAULT or TIMED_OUT). A build that is running keeps the verdict of the last finished one and shows "building #N"; the next successful build clears it. Alarms on `AWS/CodeBuild` for the project count as well.
+- **Suppressing a failure:** **Suppress…** next to "Latest build failed" offers **Only this failure** (the default): the project turns OK, and the next failed build alerts again. You can also suppress it for every build of the project, the target or all targets.
+- **Build history** (details): the last 25 builds with status, start, duration and commit; expand one for its phases. Read when the details open and kept for 10 minutes.
+- **Calls:** `codebuild:ListProjects`, `ListBuilds` (the account's newest builds, one page per poll), `BatchGetBuilds`, and `ListBuildsForProject` for projects without a recent build (at most 20 per poll, so accounts with many projects stay under CodeBuild's rate limit; the rest show "not read yet" for a few polls). Read-only: start and retry builds in the console.
+
+## CloudFormation
+
+- Every stack (`cloudformation:DescribeStacks`), nested stacks under their root stack. Stacks Elastic Beanstalk creates (`awseb-…`) are left out unless you tick the option in Settings → General.
+- **Problems:** a `*_FAILED` status and `ROLLBACK_COMPLETE` (a create that failed) are critical; `UPDATE_ROLLBACK_COMPLETE` (an update failed and was rolled back; the stack still works) is a warning. The first failed resource explains it, e.g. "AssetsBucket UPDATE_FAILED: … already exists" (one `DescribeStackEvents` read per failure). **Only this failure** suppression works as for builds: the next failed update alerts again.
+- **Details:** status and reason, created/updated, drift status as last detected in the console (Skypeek never starts drift detection), termination protection, outputs, and **Stack history**: the recent operations (create, update, delete) with their final status, duration and failed resources; expand one for its events.
+
 ## Network (VPC) and security groups
 
 - **Tree:** target → VPC → **Subnets** (CIDR, zone, public/private, used/free addresses; nearly full subnets are flagged) → the IP addresses in each subnet, with what uses them (EC2 instance, load balancer, RDS, ElastiCache, ECS task, Lambda, NAT gateway, VPC endpoint, …); VPC → **Security groups**; **Elastic IPs** (unassociated ones are flagged). Search finds IPs, CIDRs, ids, names, ports and rule sources.
 - **Resource map** (select a VPC): subnets → route tables → network connections (internet gateway, NAT gateways with their public IPs, egress-only gateway, transit gateway, VPN gateway, peering, gateway endpoints), joined by lines like the console's map. Click a box to highlight its path and see its routes. Each subnet is classified by its default route: **public** (internet gateway), **private + NAT** (outbound only, and the public IP it appears as), **routed elsewhere** (transit gateway, peering, VPN, appliance), **isolated** (no default route) or **blackhole** (the route's target was deleted). Subnets that use the main route table implicitly are marked, and a NAT gateway that sits in a subnet without an internet route is flagged. The **Gateways & connections** group lists the same gateways with their details (NAT public and private IPs are searchable).
 - **Cached:** the inventory is downloaded by its own job (default hourly, per target in Settings → Accounts & regions; **Download all now** on the tab) and stored in the vault, so the tab opens instantly; the tab shows when it was downloaded.
-- **Security group details:** inbound and outbound rules (protocol, ports, source, description, rule id; rules open to 0.0.0.0/0 or ::/0 are highlighted), the interfaces that use the group, and the groups that allow it as a source.
+- **Search by IP, CIDR or group:** type an address (`10.0.4.2`), a range (`10.0.0.0/16`) or a group id (`sg-…`) and a results panel lists what has the address (with its owner), its own security groups, and **every rule that matches it**, also by range (a rule for 10.0.0.0/16 matches 10.0.4.2) and by group reference (a rule allowing `sg-app` matches an address in `sg-app`). Rules open to the whole internet match every address and are left out unless you tick **Include rules open to everyone**. For a group id it lists the interfaces that use it and the rules in other groups that allow it. Click a result to open it.
+- **Security group details:** inbound and outbound rules (protocol, ports, source, description, rule id; rules open to 0.0.0.0/0 or ::/0 are highlighted), the interfaces that use the group, the **dashboard resources that use it** (EC2, RDS, ElastiCache, load balancers, ECS services, Redshift, Elastic Beanstalk environments; click to show one), and the groups that allow it as a source. The details pages of those resources show their security groups too.
 - **Editing rules:** **Add inbound/outbound rule…**, **Edit…** and **Delete…**. The editor has presets (SSH, RDP, HTTP, HTTPS, PostgreSQL, MySQL, MSSQL, Redis, all traffic, …), IPv4/IPv6 CIDR, security group or prefix list sources, **My IP** (asks `checkip.amazonaws.com`) and a description. Each change is one rule with one source: `ec2:AuthorizeSecurityGroupIngress/Egress`, `ec2:ModifySecurityGroupRules` or `ec2:RevokeSecurityGroupIngress/Egress` by rule id. Before an edit or delete Skypeek re-reads the rule and stops if it changed. Deleting a rule, or opening one to the whole internet, asks you to type the group ID. After the change the group is re-read.
-- **Calls:** `ec2:DescribeVpcs`, `DescribeSubnets`, `DescribeNetworkInterfaces`, `DescribeSecurityGroups`, `DescribeSecurityGroupRules`, `DescribeAddresses`, `DescribeRouteTables`, `DescribeInternetGateways`, `DescribeEgressOnlyInternetGateways`, `DescribeNatGateways`, `DescribeVpcEndpoints`, `DescribeVpcPeeringConnections`.
+- **Calls:** `ec2:DescribeVpcs`, `DescribeSubnets`, `DescribeNetworkInterfaces`, `DescribeSecurityGroups`, `DescribeSecurityGroupRules`, `DescribeAddresses`, `DescribeRouteTables`, `DescribeInternetGateways`, `DescribeEgressOnlyInternetGateways`, `DescribeNatGateways`, `DescribeVpcEndpoints`, `DescribeVpcPeeringConnections`, `DescribeNetworkAcls`, and `DescribeManagedPrefixLists` / `GetManagedPrefixListEntries` for the prefix lists that rules and routes use.
+
+## Analyze reach
+
+**Analyze reach…** on the Network tab (or **Check reach…** on a resource's or interface's details) answers "can this server reach that one on port X?" in an instant, from the downloaded network data.
+
+- **From / To:** search for an EC2 instance, database, cache, load balancer, Redshift cluster, ECS service, Elastic Beanstalk environment or any interface by name, id or IP, or type an IP address (on-premises, the internet) or a host name (resolved with DNS). Databases and caches are found through their endpoint's DNS name. Pick TCP/UDP/ICMP/all and a port (presets for SSH, HTTP(S), PostgreSQL, MySQL, MSSQL, Redis, Redshift, RDP).
+- **What is checked, in order:** the source's security groups (outbound), the source subnet's network ACL (outbound), the route (longest prefix match: local, peering, internet gateway — which needs a public IP and cannot reach private addresses —, NAT gateway, endpoints), the destination subnet's network ACL (inbound), the destination's security groups (inbound, including rules that allow the source's groups), and the reply: network ACLs are stateless, so the ephemeral ports must be open the other way, and the destination needs a route back. Each step shows whether it passes, what blocks it (the rule, ACL entry or missing route) and a link to the group or subnet.
+- **Verdict:** Reachable, Blocked at a step, or **Probably reachable** when some hops cannot be seen: transit gateway route tables, the far side of a VPN or Direct Connect, firewall appliances, and firewalls on the hosts themselves. Both ends in different targets work when both targets' network data is downloaded (e.g. peered VPCs in two accounts).
+- **Verify with AWS Reachability Analyzer ($0.10):** optional, for a source interface and a destination interface (or address) in the same account and region. It uses the elevated key after you approve, creates a network insights path and analysis (`ec2:CreateNetworkInsightsPath`, `ec2:StartNetworkInsightsAnalysis`), waits up to 3 minutes (`ec2:DescribeNetworkInsightsAnalyses`) and deletes both again (`ec2:DeleteNetworkInsightsAnalysis`, `ec2:DeleteNetworkInsightsPath`). AWS's answer and its explanation codes appear next to Skypeek's.
 
 ## Monthly cost
 
@@ -208,20 +244,48 @@ Off by default; turn on per target in Settings → Accounts & regions → **Cost
   - Prices come from `pricing:GetProducts` (served from us-east-1), are cached in the vault for a week, and are read when a new instance type appears.
 - **Billed cost (Cost Explorer):** this month so far and last month for the target's region, by service (target details), and — if **resource-level data at daily granularity** is enabled in Billing → Cost Management preferences — the last 14 days per resource (details show "billed in the last 14 days"). Uses `ce:GetCostAndUsage` and `ce:GetCostAndUsageWithResources`; **each Cost Explorer request costs $0.01**, so Skypeek reads it at most every 12 hours (about $0.04 per day per target) or when you click **Refresh costs**. Global services (e.g. Route 53, CloudFront) are not in a region's total. In an AWS Organization, Cost Explorer data may only be available in the payer account.
 
+## Alert levels (dev and sandbox environments)
+
+A **maximum alert level** keeps environments you don't want to be bothered by from turning the tray red:
+
+- **Normal:** warnings and critical problems as they are.
+- **Max warning:** critical problems count as warnings; the tray icon never turns red because of them (even with "warnings turn the icon red" on). They still notify, as warnings.
+- **Info only:** shown on the dashboard with their real colour and an "info only" badge, but never counted as a problem, never notified and never in the tray.
+
+Set it per target (Settings → Accounts & regions → **Maximum alert level**, e.g. for a sandbox account) and per resource from its details (**Alerts: …**), which overrides the target in either direction (a production database inside a dev account can stay normal). The tree shows the cap as a badge; Settings → Suppressions & thresholds lists the per-resource overrides. A target's cap also applies to its unmatched CloudWatch alarms and failed syncs.
+
+## Notifications
+
+- A notification appears when a resource breaks, gets worse or recovers, also while the window is hidden or only the tray icon is showing (while locked it shows only the title). Several changes at once are grouped.
+- **Turn them off or on** in Settings → General → Notifications, or with **Notifications** in the tray menu. While they are off, changes are still tracked, so turning them back on does not replay old news. **Send a test notification** checks that the operating system shows them (Windows: Settings → System → Notifications and Do not disturb / Focus must allow Skypeek).
+- The SSO sign-in window has its own switch (see [Where credentials come from](#where-credentials-come-from)).
+
 ## Hiding resources
 
-- Right-click a resource in the tree and choose **Hide from dashboard**, or click **Hide** in its details. Works for every resource type (environments, services, databases, caches, instances, load balancers).
+- Right-click a resource in the tree and choose **Hide from dashboard**, or click **Hide** in its details. Works for every resource type (environments, services, databases, caches, instances, load balancers, Redshift, VPN connections, CodeBuild projects, stacks).
 - A hidden resource is not shown, not counted as a problem, never turns the tray red, never notifies, and its metrics are not queried (no CloudWatch cost). It stays in the inventory, so unhiding is instant.
 - **Show hidden (N)** in the toolbar shows them greyed out; **Suppressions** lists them with **Unhide**.
 
 ## Non-read actions
 
-These are the only calls that aren't pure reads: the EB log request (`RequestEnvironmentInfo`), the EB actions above, ECS **Force new deployment** (`ecs:UpdateService` with only `ForceNewDeployment`; any other field, such as desired count or task definition, is refused by the pipeline), EC2 **Start/Stop/Reboot** of one instance (stop without force or hibernation), and security group rule changes (exactly one rule with one source, by group id; deletes and edits by rule id). Force new deployment replaces a service's tasks with fresh ones from the current task definition, e.g. to pull a re-tagged image or re-read secrets.
+These are the only calls that aren't pure reads: the EB log request (`RequestEnvironmentInfo`), the EB actions above, ECS **Force new deployment** (`ecs:UpdateService` with only `ForceNewDeployment`; any other field, such as desired count or task definition, is refused by the pipeline), EC2 **Start/Stop/Reboot** of one instance (stop without force or hibernation), security group rule changes (exactly one rule with one source, by group id; deletes and edits by rule id), [secret and parameter changes](#editing-secrets-and-parameters), and the optional AWS Reachability Analyzer check of [Analyze reach](#analyze-reach) (creates and deletes its path and analysis). Force new deployment replaces a service's tasks with fresh ones from the current task definition, e.g. to pull a re-tagged image or re-read secrets.
 
 - They always use the target's **elevated** profile, never the read-only one. Targets without an elevated profile can't use them.
 - Each call asks for your approval in the permission dialog.
 - They are on a separate confirmed-only list: the SDK pipeline lets them through only for a call that is both elevated and approved, and only with the narrow parameters above.
 - Everything else, including every background call, is read-only.
+
+## Editing secrets and parameters
+
+With a target's elevated key, the **Secrets & parameters** tab can change values and create and delete secrets and parameters. Each change asks for approval; the permission dialog names the item and the value's size, never the value.
+
+- **Edit value…** (details): starts from the revealed value, or **Load current value** reads it with the elevated key, or type a new one. JSON secrets of simple values edit as a key/value table; values show as dots until **Show**. Before saving, Skypeek re-reads the item and stops if someone changed it since the editor opened.
+  - A secret gets a new version (`secretsmanager:PutSecretValue`, labelled AWSCURRENT; the previous one stays as AWSPREVIOUS).
+  - A parameter is overwritten with the next version (`ssm:PutParameter` with `Overwrite`), keeping its type, KMS key and tier (sizes are checked first: 4 KB Standard, 8 KB Advanced).
+- **New secret… / New parameter…** (toolbar): target, name, value, description and an optional KMS key; for parameters String, StringList or SecureString and the tier (`secretsmanager:CreateSecret`, `ssm:PutParameter`).
+- **Delete…** asks you to type the name. A secret is scheduled for deletion with a 30-day recovery window (`secretsmanager:DeleteSecret`; never "force delete without recovery") and **Cancel deletion** (`secretsmanager:RestoreSecret`) brings it back; a parameter is deleted at once with all its versions (`ssm:DeleteParameter`).
+- **What is never allowed:** tags, resource policies, replication, rotation, parameter policies or allowed patterns, batch deletes, changing a parameter's type. The pipeline checks each request's fields.
+- **The value stays out of everything:** the request log records only the name (and type, tier, recovery window), AWS error messages are scrubbed of the value, and the editor clears it when it closes (locking closes it).
 
 ## Exporting logs for AI analysis
 
@@ -257,7 +321,7 @@ You can change the hotkey in Settings → General. Press the combination in the 
 ## Security model
 
 - **Read-only by default.** Every SDK client runs through `ReadOnlyGuardHandler` ([src/Skypeek.Aws/ReadOnlyGuard.cs](src/Skypeek.Aws/ReadOnlyGuard.cs)).
-  - It rejects any request type that isn't on an exact allowlist of read operations (`List*`/`Describe*`/`Get*`/`Filter*`/`Retrieve*`, plus `DownloadDBLogFilePortion`, which reads an RDS log file), *before* signing or sending.
+  - It rejects any request type that isn't on an exact allowlist of read operations (`List*`/`Describe*`/`Get*`/`Filter*`/`Retrieve*`/`BatchGet*`, plus `DownloadDBLogFilePortion`, which reads an RDS log file), *before* signing or sending.
   - The few non-read actions (see [Non-read actions](#non-read-actions)) pass only for an elevated, user-approved call with the expected narrow parameters.
   - Tests send real write requests (`PutParameter`, `UpdateService`, `RequestEnvironmentInfo`, `StopInstances`, `RevokeSecurityGroupIngress`) through the pipeline and assert that nothing reaches the network unless the call is elevated, approved and narrowly shaped.
   - An architecture test fails the build if the source references any SDK request type that isn't on one of the two lists.
@@ -285,12 +349,16 @@ When AWS rejects a profile's credentials (`ExpiredToken`, `InvalidClientTokenId`
   - an RDS database or cluster, or a cache, that is not available or has broken replication
   - an EC2 instance with a failed status check or scheduled maintenance
   - a load balancer target group with unhealthy targets
+  - a Redshift cluster that failed or is unavailable
+  - a VPN connection with a tunnel down
+  - a CodeBuild project whose latest build failed
+  - a CloudFormation stack that failed or rolled back
   - CPU, memory, database connections or storage above a threshold for the sustained period (default 10 min)
   - an active CloudWatch alarm
   - halted credentials
   - a failed sync (lists, health, metrics or network download)
 
-  Hidden resources never count.
+  Hidden resources and resources whose alerts are "info only" never count; "max warning" ones never make it red.
 - **Grey:** locked since startup.
 
 Warning-level problems turn the icon red by default; you can change that in Settings → General. Notifications appear only when a status changes.

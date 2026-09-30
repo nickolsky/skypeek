@@ -32,6 +32,8 @@ public sealed class AppSettings
     public bool EbGroupByApplication { get; set; }
     /// <summary>EC2 group also lists instances Elastic Beanstalk manages (they are shown under their environment anyway).</summary>
     public bool Ec2IncludeEbInstances { get; set; }
+    /// <summary>CloudFormation group also lists the stacks Elastic Beanstalk creates for its environments (awseb-…).</summary>
+    public bool StacksIncludeEb { get; set; }
 
     /// <summary>
     /// Resources (by <see cref="ResourceKeys"/> value) the user hid from the dashboard: not shown, not counted as
@@ -41,6 +43,19 @@ public sealed class AppSettings
     public int SustainedMinutes { get; set; } = 10;
     public int AlarmHistoryHours { get; set; } = 24;
     public bool WarningsTurnIconRed { get; set; } = true;
+
+    /// <summary>Desktop notifications when a resource breaks or recovers (also while the window is hidden).</summary>
+    public bool NotifyProblems { get; set; } = true;
+    /// <summary>Ask to sign in again (popup, or a notification while locked) when an AWS SSO sign-in ends.</summary>
+    public bool NotifySignIn { get; set; } = true;
+    /// <summary>Keep SSO sign-ins renewed by letting the AWS CLI refresh its token before it runs out.</summary>
+    public bool RenewSsoWithCli { get; set; } = true;
+
+    /// <summary>
+    /// Per-resource alert level caps (by <see cref="ResourceKeys"/> value); they override the target's
+    /// <see cref="Target.AlertCap"/>, in either direction.
+    /// </summary>
+    public Dictionary<string, AlertCap> ResourceAlertCaps { get; set; } = new();
     public int RequestLogRetentionDays { get; set; } = 30;
 
     /// <summary>Keyed by <see cref="ResourceKeys"/> values, e.g. "3:ecs:cluster/service".</summary>
@@ -62,17 +77,23 @@ public sealed class AppSettings
 /// An EB health cause matching <see cref="Pattern"/> (whitespace-insensitive, * and ? wildcards) no longer makes the
 /// environment unhealthy. Scope: one environment, all environments of a target, or everything.
 /// </summary>
-public sealed record CauseSuppression(string Pattern, long? TargetId, string? EnvironmentName, DateTime CreatedUtc)
+/// <param name="EnvironmentName">The resource name (EB environment, load balancer, project, stack, VPN…).</param>
+/// <param name="OnlyFor">
+/// One occurrence only (a failed build id, a failed stack update): the suppression stops applying when the resource fails
+/// again, so the next failure alerts.
+/// </param>
+public sealed record CauseSuppression(string Pattern, long? TargetId, string? EnvironmentName, DateTime CreatedUtc, string? OnlyFor = null)
 {
     public string Scope(IReadOnlyList<Target> targets)
     {
         var target = TargetId is null ? null : targets.FirstOrDefault(t => t.Id == TargetId)?.DisplayName ?? $"target {TargetId}";
-        return (target, EnvironmentName) switch
+        var scope = (target, EnvironmentName) switch
         {
             (null, _) => "all targets",
             (_, null) => $"everything in {target}",
             _ => $"{EnvironmentName} ({target})",
         };
+        return OnlyFor is null ? scope : $"{scope} · this failure only";
     }
 }
 
@@ -81,6 +102,17 @@ public sealed record AlarmSuppression(string Pattern, long? TargetId, DateTime C
 {
     public string Scope(IReadOnlyList<Target> targets) =>
         TargetId is null ? "all targets" : targets.FirstOrDefault(t => t.Id == TargetId)?.DisplayName ?? $"target {TargetId}";
+}
+
+/// <summary>The most a resource may alert: dev and sandbox environments should not turn the tray red.</summary>
+public enum AlertCap
+{
+    /// <summary>No cap: warnings and critical problems as they are.</summary>
+    None,
+    /// <summary>Critical problems count as warnings; the tray icon never turns red because of them.</summary>
+    Warning,
+    /// <summary>Shown on the dashboard only: never counted as a problem, no notifications, no tray colour.</summary>
+    Info,
 }
 
 public sealed class Target
@@ -101,6 +133,8 @@ public sealed class Target
     public string Region { get; set; } = "us-east-1";
     public string Alias { get; set; } = "";
     public bool Enabled { get; set; } = true;
+    /// <summary>Maximum alert level of everything in this target (resources can override it).</summary>
+    public AlertCap AlertCap { get; set; }
 
     public bool SecretsEnabled { get; set; } = true;
     public bool ParamsEnabled { get; set; } = true;
@@ -110,6 +144,10 @@ public sealed class Target
     public bool CacheEnabled { get; set; } = true;
     public bool Ec2Enabled { get; set; } = true;
     public bool ElbEnabled { get; set; } = true;
+    public bool VpnEnabled { get; set; } = true;
+    public bool CodeBuildEnabled { get; set; } = true;
+    public bool StacksEnabled { get; set; } = true;
+    public bool RedshiftEnabled { get; set; } = true;
     /// <summary>Network tab: VPCs, subnets, interfaces and security groups (downloaded and cached).</summary>
     public bool NetworkEnabled { get; set; } = true;
     /// <summary>Monthly cost estimates from the AWS Price List (free API; prices cached for a week).</summary>
@@ -118,7 +156,9 @@ public sealed class Target
     public bool CostExplorerEnabled { get; set; }
 
     /// <summary>Any health/metrics feature on.</summary>
-    [JsonIgnore] public bool HealthEnabled => EbEnabled || EcsEnabled || RdsEnabled || CacheEnabled || Ec2Enabled || ElbEnabled;
+    [JsonIgnore]
+    public bool HealthEnabled => EbEnabled || EcsEnabled || RdsEnabled || CacheEnabled || Ec2Enabled || ElbEnabled
+                                 || VpnEnabled || CodeBuildEnabled || StacksEnabled || RedshiftEnabled;
 
     /// <summary>0 = off.</summary>
     public int CatalogIntervalMinutes { get; set; } = 360;
@@ -144,6 +184,10 @@ public static class ResourceKeys
     public static string Cache(long targetId, string id) => $"{targetId}:cache:{id}";
     public static string Ec2(long targetId, string instanceId) => $"{targetId}:ec2:{instanceId}";
     public static string LoadBalancer(long targetId, string name) => $"{targetId}:elb:{name}";
+    public static string Vpn(long targetId, string vpnId) => $"{targetId}:vpn:{vpnId}";
+    public static string CodeBuild(long targetId, string project) => $"{targetId}:codebuild:{project}";
+    public static string Stack(long targetId, string stackName) => $"{targetId}:cfn:{stackName}";
+    public static string Redshift(long targetId, string id) => $"{targetId}:redshift:{id}";
 }
 
 public static class AwsRegions

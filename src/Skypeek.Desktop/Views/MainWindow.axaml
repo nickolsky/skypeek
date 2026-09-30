@@ -27,6 +27,11 @@
 
         <!-- Top-right of the tab strip. Closing the window only hides it to the tray; Exit really quits. -->
         <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,9,16,0">
+            <!-- What is being refreshed right now (scheduled jobs and manual refreshes); the tooltip lists everything. -->
+            <StackPanel x:Name="ActivityPanel" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,14,0" IsVisible="False" Background="Transparent">
+                <ProgressBar IsIndeterminate="True" Width="56" MinWidth="56" Height="3" MinHeight="3" VerticalAlignment="Center" Margin="0,0,8,0" />
+                <TextBlock Classes="caption" x:Name="ActivityText" VerticalAlignment="Center" MaxWidth="420" TextTrimming="CharacterEllipsis" />
+            </StackPanel>
             <views:IconButton Content="Lock" Symbol="LockClosed" Padding="10,4" Margin="0,0,6,0" Click="OnLock"
                        ToolTip.Tip="Hide the window and require the master password; background refresh continues" />
             <views:IconButton Content="Exit" Symbol="Power" Padding="10,4" Click="OnExit"

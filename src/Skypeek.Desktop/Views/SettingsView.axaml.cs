@@ -27,6 +27,15 @@ public partial class SettingsView : UserControl
     public sealed record OverrideRow(string Key, string Label, string Values);
     public sealed record SuppressionRow(AlarmSuppression Rule, string Pattern, string Scope);
     public sealed record CauseRow(CauseSuppression Rule, string Pattern, string Scope);
+    public sealed record CapOption(string Label, AlertCap Cap);
+    public sealed record CapRow(string Key, string Label, string Cap);
+
+    private static readonly CapOption[] CapOptions =
+    [
+        new("Normal: warnings and critical problems", AlertCap.None),
+        new("Max warning: never turns the tray red", AlertCap.Warning),
+        new("Info only: shown, never counted or notified", AlertCap.Info),
+    ];
 
     private static readonly IntervalOption[] CatalogOptions =
         [new("Off", 0), new("Every hour", 60), new("Every 3 hours", 180), new("Every 6 hours", 360), new("Every 12 hours", 720), new("Daily", 1440)];
@@ -43,6 +52,7 @@ public partial class SettingsView : UserControl
 
     // Overrides and suppressions can also change from the dashboard; keep only the edits made here and merge on save.
     private readonly HashSet<string> _removedOverrides = new();
+    private readonly HashSet<string> _removedCaps = new();
     private readonly List<AlarmSuppression> _addedSuppressions = new();
     private readonly List<AlarmSuppression> _removedSuppressions = new();
     private readonly List<CauseSuppression> _removedCauses = new();
@@ -65,6 +75,7 @@ public partial class SettingsView : UserControl
         MetricsInterval.ItemsSource = MetricsOptions;
         NetworkInterval.ItemsSource = NetworkOptions;
         Region.ItemsSource = AwsRegions.All;
+        TargetAlertCap.ItemsSource = CapOptions;
 
         LoadGeneral(settings);
         AutoUpdate.IsChecked = session.Vault.Meta.CheckForUpdates;
@@ -105,6 +116,7 @@ public partial class SettingsView : UserControl
         RefreshOverrides();
         RefreshSuppressions();
         RefreshCauses();
+        RefreshCaps();
     }
 
     // ---------------- load ----------------
@@ -117,6 +129,10 @@ public partial class SettingsView : UserControl
         LockoutMinutes.Text = s.LockoutMinutes.ToString(CultureInfo.InvariantCulture);
         LockOnWindowsLock.IsChecked = s.LockOnWindowsLock;
         WarningsRed.IsChecked = s.WarningsTurnIconRed;
+        StacksIncludeEb.IsChecked = s.StacksIncludeEb;
+        NotifyProblems.IsChecked = s.NotifyProblems;
+        NotifySignIn.IsChecked = s.NotifySignIn;
+        RenewSso.IsChecked = s.RenewSsoWithCli;
         RetentionDays.Text = s.RequestLogRetentionDays.ToString(CultureInfo.InvariantCulture);
         ShowNonReadOnly.IsChecked = s.ShowNonReadOnlyProfiles;
     }
@@ -136,6 +152,33 @@ public partial class SettingsView : UserControl
         RefreshOverrides();
         RefreshSuppressions();
         RefreshCauses();
+        RefreshCaps();
+    }
+
+    private Dictionary<string, AlertCap> MergedCaps() =>
+        _session.Settings.Settings.ResourceAlertCaps.Where(kv => !_removedCaps.Contains(kv.Key)).ToDictionary(kv => kv.Key, kv => kv.Value);
+
+    private void RefreshCaps() =>
+        AlertCapList.ItemsSource = MergedCaps()
+            .Select(kv => new CapRow(kv.Key, DescribeKey(kv.Key), AlertCapButton.CapName(kv.Value)))
+            .OrderBy(r => r.Label)
+            .ToList();
+
+    private void OnRemoveAlertCap(object? sender, RoutedEventArgs e)
+    {
+        if (AlertCapList.SelectedItem is not CapRow row)
+            return;
+        _removedCaps.Add(row.Key);
+        RefreshCaps();
+        SaveStatus.Text = "Alert level override removed — Save to apply.";
+    }
+
+    private void OnTestNotification(object? sender, RoutedEventArgs e)
+    {
+        var shown = DesktopNotifier.Test($"{AppInfo.Name} test notification", "Notifications work. Problems are announced like this, also while the window is hidden.");
+        TestNotificationStatus.Text = shown is null
+            ? "Sent. If nothing appeared, check that notifications (and Do not disturb / Focus) allow this app."
+            : $"The notification could not be shown: {shown}";
     }
 
     private Dictionary<string, ThresholdSettings> MergedOverrides() =>
@@ -306,6 +349,7 @@ public partial class SettingsView : UserControl
         Alias.Text = t.Alias;
         Region.Text = t.Region;
         TargetEnabled.IsChecked = t.Enabled;
+        TargetAlertCap.SelectedItem = CapOptions.First(o => o.Cap == t.AlertCap);
         var profile = _session.Monitor.Profiles.GetValueOrDefault(t.ProfileName);
         ProfileText.Text = profile is null
             ? $"Read-only: {t.ProfileName} — not found in the credentials or config file"
@@ -320,6 +364,10 @@ public partial class SettingsView : UserControl
         FeatCache.IsChecked = t.CacheEnabled;
         FeatEc2.IsChecked = t.Ec2Enabled;
         FeatElb.IsChecked = t.ElbEnabled;
+        FeatRedshift.IsChecked = t.RedshiftEnabled;
+        FeatVpn.IsChecked = t.VpnEnabled;
+        FeatCodeBuild.IsChecked = t.CodeBuildEnabled;
+        FeatStacks.IsChecked = t.StacksEnabled;
         FeatNetwork.IsChecked = t.NetworkEnabled;
         FeatCost.IsChecked = t.CostEnabled;
         FeatCostExplorer.IsChecked = t.CostExplorerEnabled;
@@ -411,6 +459,7 @@ public partial class SettingsView : UserControl
                     other.ElevatedProfileName = elevated;
         }
 
+        if (TargetAlertCap.SelectedItem is CapOption cap) t.AlertCap = cap.Cap;
         t.SecretsEnabled = FeatSecrets.IsChecked == true;
         t.ParamsEnabled = FeatParams.IsChecked == true;
         t.EbEnabled = FeatEb.IsChecked == true;
@@ -419,6 +468,10 @@ public partial class SettingsView : UserControl
         t.CacheEnabled = FeatCache.IsChecked == true;
         t.Ec2Enabled = FeatEc2.IsChecked == true;
         t.ElbEnabled = FeatElb.IsChecked == true;
+        t.RedshiftEnabled = FeatRedshift.IsChecked == true;
+        t.VpnEnabled = FeatVpn.IsChecked == true;
+        t.CodeBuildEnabled = FeatCodeBuild.IsChecked == true;
+        t.StacksEnabled = FeatStacks.IsChecked == true;
         t.NetworkEnabled = FeatNetwork.IsChecked == true;
         t.CostEnabled = FeatCost.IsChecked == true;
         t.CostExplorerEnabled = FeatCostExplorer.IsChecked == true;
@@ -563,6 +616,11 @@ public partial class SettingsView : UserControl
             ShowNonReadOnlyProfiles = ShowNonReadOnly.IsChecked == true,
             LockOnWindowsLock = LockOnWindowsLock.IsChecked == true,
             WarningsTurnIconRed = WarningsRed.IsChecked == true,
+            StacksIncludeEb = StacksIncludeEb.IsChecked == true,
+            NotifyProblems = NotifyProblems.IsChecked == true,
+            NotifySignIn = NotifySignIn.IsChecked == true,
+            RenewSsoWithCli = RenewSso.IsChecked == true,
+            ResourceAlertCaps = MergedCaps(),
             IgnoreTargetTrackingAlarms = IgnoreTargetTracking.IsChecked == true,
             LockoutMinutes = ParseInt(LockoutMinutes.Text, 0, 1440, "Lockout minutes", errors),
             RequestLogRetentionDays = ParseInt(RetentionDays.Text, 1, 3650, "Retention days", errors),
@@ -640,6 +698,7 @@ public partial class SettingsView : UserControl
 
         _session.Settings.SaveSettings(settings);
         _removedOverrides.Clear();
+        _removedCaps.Clear();
         _addedSuppressions.Clear();
         _removedSuppressions.Clear();
         _removedCauses.Clear();

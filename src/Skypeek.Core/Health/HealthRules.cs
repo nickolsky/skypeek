@@ -190,6 +190,7 @@ public static partial class HealthRules
         _ when settings.ResourceThresholds.TryGetValue(resource.ResourceKey, out var perResource) => perResource,
         RdsInstanceStatus or RdsClusterStatus => settings.RdsThresholds,
         Ec2InstanceStatus => settings.Ec2Thresholds,
+        RedshiftStatus => settings.RdsThresholds,
         CacheStatus => settings.CacheThresholds,
         _ => ThresholdSettings.Default,
     };
@@ -211,6 +212,7 @@ public static partial class HealthRules
     public static bool IsRelevantAlarm(AlarmInfo alarm) =>
         IsCpuOrMemoryMetric(alarm.MetricName)
         || alarm.Namespace is "AWS/RDS" or "AWS/ElastiCache" or "AWS/ApplicationELB" or "AWS/NetworkELB" or "AWS/GatewayELB"
+            or "AWS/VPN" or "AWS/CodeBuild" or "AWS/Redshift"
         || (alarm.Namespace == "AWS/EC2" && alarm.MetricName?.StartsWith("StatusCheckFailed", StringComparison.Ordinal) == true);
 
     public static bool AlarmMatchesEc2(AlarmInfo alarm, Ec2InstanceSnapshot instance) =>
@@ -553,6 +555,19 @@ public static partial class HealthRules
         status.Reasons = reasons;
     }
 
+    /// <summary>The cap for a resource: its own override, else its target's.</summary>
+    public static AlertCap ResolveAlertCap(AppSettings settings, Target target, string resourceKey) =>
+        settings.ResourceAlertCaps.TryGetValue(resourceKey, out var cap) ? cap : target.AlertCap;
+
+    /// <summary>Applies an alert cap after <see cref="Recompute"/>: "warning" lowers critical to warning.</summary>
+    public static void ApplyAlertCap(ResourceStatus status, AlertCap cap)
+    {
+        status.Cap = cap;
+        status.UncappedLevel = status.Level;
+        if (cap == AlertCap.Warning && status.Level == HealthLevel.Critical)
+            status.Level = HealthLevel.Warn;
+    }
+
     public const string TargetTrackingPrefix = "TargetTracking-";
 
     /// <summary>Why an alarm is suppressed for this target, or null when it counts.</summary>
@@ -581,12 +596,13 @@ public static partial class HealthRules
     /// <summary>Collapses whitespace and line breaks so causes match regardless of formatting.</summary>
     public static string NormalizeCause(string cause) => Regex.Replace(cause, @"\s+", " ").Trim();
 
-    public static CauseSuppression? MatchCause(string cause, long targetId, string environmentName, AppSettings settings)
+    public static CauseSuppression? MatchCause(string cause, long targetId, string environmentName, AppSettings settings, string? instance = null)
     {
         var text = NormalizeCause(cause);
         return settings.SuppressedCauses.FirstOrDefault(rule =>
             (rule.TargetId is null || rule.TargetId == targetId) &&
             (rule.EnvironmentName is null || rule.EnvironmentName == environmentName) &&
+            (rule.OnlyFor is null || rule.OnlyFor == instance) &&
             WildcardMatch(NormalizeCause(rule.Pattern), text));
     }
 

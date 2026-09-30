@@ -1,0 +1,42 @@
+<views:DialogWindow xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:views="using:Skypeek.Desktop.Views"
+                    x:Class="Skypeek.Desktop.Views.SignInDialog"
+                    x:DataType="views:SignInDialog"
+                    Title="Skypeek — sign in to AWS" Width="520" SizeToContent="Height" CanResize="False"
+                    Topmost="True" WindowStartupLocation="CenterScreen" Background="#FF2B2B2B">
+    <DockPanel>
+        <Border DockPanel.Dock="Bottom" Background="#FF202020" BorderBrush="#FF3D3D3D" BorderThickness="0,1,0,0" Padding="20,14">
+            <DockPanel>
+                <views:IconButton DockPanel.Dock="Right" Content="Later" Symbol="Clock" IsCancel="True" Click="OnLater"
+                                  ToolTip.Tip="Close; the dashboard and the tray menu keep a Sign in button" />
+                <TextBlock Classes="caption" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,12,0"
+                           Text="Refreshes of these targets are paused and resume by themselves after you sign in." />
+            </DockPanel>
+        </Border>
+
+        <StackPanel Margin="20,18,20,20">
+            <TextBlock FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource TextStrong}" TextWrapping="Wrap"
+                       Text="Your AWS sign-in has ended" />
+            <TextBlock Classes="body" TextWrapping="Wrap" Margin="0,8,0,0" LineHeight="18"
+                       Text="Signing in opens the AWS sign-in page in your browser (aws sso login)." />
+            <ItemsControl x:Name="Sessions" Margin="0,12,0,0">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="views:SignInItem">
+                        <Border Classes="panel" Margin="0,0,0,8">
+                            <DockPanel>
+                                <views:IconButton DockPanel.Dock="Right" Classes="accent" Content="Sign in" Symbol="PersonKey" VerticalAlignment="Center"
+                                                  Click="OnSignIn" Tag="{Binding}" Margin="12,0,0,0" />
+                                <StackPanel>
+                                    <TextBlock Text="{Binding Title}" Foreground="{StaticResource TextStrong}" TextWrapping="Wrap" />
+                                    <TextBlock Classes="caption" Text="{Binding Detail}" TextWrapping="Wrap" Margin="0,2,0,0" />
+                                </StackPanel>
+                            </DockPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock x:Name="Status" Classes="caption" TextWrapping="Wrap" FontFamily="{StaticResource MonoFont}" IsVisible="False" Margin="0,4,0,0" />
+        </StackPanel>
+    </DockPanel>
+</views:DialogWindow>

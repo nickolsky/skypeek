@@ -11,7 +11,7 @@
 
         <WrapPanel Margin="0,0,0,6">
             <TextBox x:Name="Filter" PlaceholderText="Filter (profile, region, service, operation, parameters, error)…" Width="420"
-                        TextChanged="OnFilterChanged" Classes="clearButton" />
+                        TextChanged="OnFilterChanged" views:SearchBoxClear.Enabled="True" />
             <CheckBox x:Name="ProblemsOnly" Content="Errors / blocked / skipped only" Margin="12,0,0,0" IsCheckedChanged="OnFilterChanged" />
             <CheckBox x:Name="ElevatedOnly" Content="Elevated key only" Margin="12,0,0,0" IsCheckedChanged="OnFilterChanged" />
             <CheckBox x:Name="Follow" Content="Live" IsChecked="True" Margin="12,0,0,0" />

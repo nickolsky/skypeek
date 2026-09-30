@@ -112,3 +112,28 @@ public sealed class StripeBrushConverter : IValueConverter
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotSupportedException();
 }
+
+/// <summary>
+/// Security groups for a details page, with names from the Network tab data when it has been downloaded. Takes
+/// <see cref="Skypeek.Core.Models.SecurityGroupRef"/>s, security group ids, or EC2 instance ids (an Elastic Beanstalk
+/// environment: its instances' groups). ConverterParameter "any" returns whether there are any.
+/// </summary>
+public sealed class GroupNamesConverter : IValueConverter
+{
+    public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        var network = App.Current.Session?.Network;
+        var groups = value switch
+        {
+            IEnumerable<Skypeek.Core.Models.SecurityGroupRef> refs => refs.ToList(),
+            IEnumerable<string> ids when ids.Any(id => id.StartsWith("i-", StringComparison.Ordinal)) => network?.GroupsOfInstances(ids) ?? [],
+            IEnumerable<string> ids => ids.Select(id => new Skypeek.Core.Models.SecurityGroupRef(id, "")).ToList(),
+            _ => [],
+        };
+        if (network is not null)
+            groups = groups.Select(g => g.Name.Length > 0 ? g : new Skypeek.Core.Models.SecurityGroupRef(g.Id, network.GroupName(g.Id) ?? "")).ToList();
+        return parameter as string == "any" ? groups.Count > 0 : groups;
+    }
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotSupportedException();
+}

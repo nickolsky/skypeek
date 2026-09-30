@@ -11,6 +11,10 @@ using Rds = Amazon.RDS.Model;
 using Eb = Amazon.ElasticBeanstalk.Model;
 using Elb = Amazon.ElasticLoadBalancingV2.Model;
 using Ce = Amazon.CostExplorer.Model;
+using Cb = Amazon.CodeBuild.Model;
+using Cfn = Amazon.CloudFormation.Model;
+using Rs = Amazon.Redshift.Model;
+using Rss = Amazon.RedshiftServerless.Model;
 using Pricing = Amazon.Pricing.Model;
 using Secrets = Amazon.SecretsManager.Model;
 using Ssm = Amazon.SimpleSystemsManagement.Model;
@@ -64,7 +68,7 @@ public sealed class RequestLogHandler(IRequestLogSink log) : PipelineHandler
             DurationMs = ms,
             RequestId = requestId,
             ErrorCode = errorCode,
-            Message = message is null ? null : message.Length > MaxMessageLength ? message[..MaxMessageLength] + "…" : message,
+            Message = RequestScope.Scrub(message) is not { } text ? null : text.Length > MaxMessageLength ? text[..MaxMessageLength] + "…" : text,
         });
     }
 }
@@ -82,6 +86,13 @@ public static class RequestParameterRedactor
         Secrets.GetSecretValueRequest r => Join(("SecretId", r.SecretId), ("VersionStage", r.VersionStage)),
         Ssm.DescribeParametersRequest r => Join(("MaxResults", r.MaxResults), ("Filters", r.ParameterFilters?.Count), ("NextToken", Token(r.NextToken))),
         Ssm.GetParameterRequest r => Join(("Name", r.Name), ("WithDecryption", r.WithDecryption)),
+        // Writes: which item and how, never the value or description.
+        Secrets.PutSecretValueRequest r => Join(("SecretId", r.SecretId)),
+        Secrets.CreateSecretRequest r => Join(("Name", r.Name), ("KmsKeyId", r.KmsKeyId)),
+        Secrets.DeleteSecretRequest r => Join(("SecretId", r.SecretId), ("RecoveryWindowInDays", r.RecoveryWindowInDays), ("ForceDeleteWithoutRecovery", r.ForceDeleteWithoutRecovery)),
+        Secrets.RestoreSecretRequest r => Join(("SecretId", r.SecretId)),
+        Ssm.PutParameterRequest r => Join(("Name", r.Name), ("Type", r.Type?.Value), ("Tier", r.Tier?.Value), ("Overwrite", r.Overwrite)),
+        Ssm.DeleteParameterRequest r => Join(("Name", r.Name)),
         Eb.DescribeEnvironmentsRequest r => Join(("IncludeDeleted", r.IncludeDeleted), ("NextToken", Token(r.NextToken))),
         Eb.DescribeEventsRequest r => Join(("StartTime", r.StartTime?.ToString("u")), ("Severity", r.Severity?.Value), ("NextToken", Token(r.NextToken))),
         Eb.DescribeEnvironmentResourcesRequest r => Join(("EnvironmentId", r.EnvironmentId)),
@@ -145,6 +156,26 @@ public static class RequestParameterRedactor
         Elb.DescribeTargetHealthRequest r => Join(("TargetGroupArn", r.TargetGroupArn)),
         Elb.DescribeListenersRequest r => Join(("LoadBalancerArn", r.LoadBalancerArn), ("Marker", Token(r.Marker))),
         Elb.DescribeRulesRequest r => Join(("ListenerArn", r.ListenerArn), ("Marker", Token(r.Marker))),
+        Ec2.DescribeVpnConnectionsRequest r => Join(("VpnConnectionIds", r.VpnConnectionIds is { Count: > 0 } v ? string.Join(",", v) : null)),
+        Ec2.DescribeCustomerGatewaysRequest r => Join(("CustomerGatewayIds", r.CustomerGatewayIds?.Count)),
+        Ec2.DescribeNetworkAclsRequest r => Join(("NextToken", Token(r.NextToken))),
+        Ec2.DescribeManagedPrefixListsRequest r => Join(("PrefixListIds", r.PrefixListIds?.Count)),
+        Ec2.GetManagedPrefixListEntriesRequest r => Join(("PrefixListId", r.PrefixListId), ("NextToken", Token(r.NextToken))),
+        Ec2.DescribeNetworkInsightsAnalysesRequest r => Join(("Analyses", r.NetworkInsightsAnalysisIds is { Count: > 0 } a ? string.Join(",", a) : null)),
+        Ec2.CreateNetworkInsightsPathRequest r => Join(("Source", r.Source), ("Destination", r.Destination), ("SourceIp", r.SourceIp), ("DestinationIp", r.DestinationIp),
+            ("Protocol", r.Protocol?.Value), ("DestinationPort", r.DestinationPort)),
+        Ec2.StartNetworkInsightsAnalysisRequest r => Join(("NetworkInsightsPathId", r.NetworkInsightsPathId)),
+        Ec2.DeleteNetworkInsightsAnalysisRequest r => Join(("NetworkInsightsAnalysisId", r.NetworkInsightsAnalysisId)),
+        Ec2.DeleteNetworkInsightsPathRequest r => Join(("NetworkInsightsPathId", r.NetworkInsightsPathId)),
+        Cb.ListProjectsRequest r => Join(("NextToken", Token(r.NextToken))),
+        Cb.ListBuildsRequest r => Join(("SortOrder", r.SortOrder?.Value), ("NextToken", Token(r.NextToken))),
+        Cb.ListBuildsForProjectRequest r => Join(("ProjectName", r.ProjectName), ("SortOrder", r.SortOrder?.Value), ("NextToken", Token(r.NextToken))),
+        Cb.BatchGetBuildsRequest r => Join(("Ids", r.Ids?.Count)),
+        Cfn.DescribeStacksRequest r => Join(("StackName", r.StackName), ("NextToken", Token(r.NextToken))),
+        Cfn.DescribeStackEventsRequest r => Join(("StackName", r.StackName), ("NextToken", Token(r.NextToken))),
+        Rs.DescribeClustersRequest r => Join(("ClusterIdentifier", r.ClusterIdentifier), ("Marker", Token(r.Marker))),
+        Rss.ListWorkgroupsRequest r => Join(("NextToken", Token(r.NextToken))),
+        Rss.GetWorkgroupRequest r => Join(("WorkgroupName", r.WorkgroupName)),
 
         // Actions: which instance / group / rule and what the rule allows; rule descriptions are not logged.
         Ec2.StartInstancesRequest r => Join(("InstanceIds", r.InstanceIds is null ? null : string.Join(",", r.InstanceIds))),

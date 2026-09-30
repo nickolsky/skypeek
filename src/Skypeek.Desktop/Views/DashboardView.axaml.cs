@@ -57,7 +57,32 @@ public partial class DashboardView : UserControl
         session.Scheduler.JobCompleted += OnJobCompleted;
         session.Settings.Changed += Schedule;
         session.Costs.Changed += Schedule;
+        session.Activity.Changed += OnActivityChanged;
         Rebuild();
+    }
+
+    private void OnActivityChanged() => Dispatcher.UIThread.Post(ShowActivity);
+
+    /// <summary>Marks the target rows (and single resources) being refreshed right now.</summary>
+    private void ShowActivity()
+    {
+        if (Tree.ItemsSource is not IEnumerable<DashNode> roots)
+            return;
+        var items = _session.Activity.Items;
+        foreach (var node in Flatten(roots.ToList()))
+        {
+            string? text = null;
+            if (node.Kind == NodeKind.Target && long.TryParse(node.Key, out var targetId))
+            {
+                var mine = items.Where(i => i.TargetId == targetId && i.ResourceKey is null).ToList();
+                if (mine.Count > 0)
+                    text = mine.All(i => i.Waiting) ? "queued…" : $"refreshing {string.Join(", ", mine.Where(i => !i.Waiting).Select(i => i.What).Distinct())}…";
+            }
+            else if (items.Any(i => i.ResourceKey == node.Key))
+                text = "refreshing…";
+            if (node.Activity != text)
+                node.Activity = text;
+        }
     }
 
     public void Detach()
@@ -67,6 +92,7 @@ public partial class DashboardView : UserControl
         _session.Scheduler.JobCompleted -= OnJobCompleted;
         _session.Settings.Changed -= Schedule;
         _session.Costs.Changed -= Schedule;
+        _session.Activity.Changed -= OnActivityChanged;
     }
 
     public void ShowProblems()
@@ -120,6 +146,7 @@ public partial class DashboardView : UserControl
                 node.PropertyChanged += OnNodeChanged;
             }
             Tree.ItemsSource = roots;
+            ShowActivity();
             if (selected is not null)
             {
                 Tree.SelectedItem = selected;
@@ -320,6 +347,12 @@ public partial class DashboardView : UserControl
             OpenUrl(r.ConsoleUrl);
     }
 
+    private void OnOpenLatestBuild(object? sender, RoutedEventArgs e)
+    {
+        if (ResourceFrom(sender) is CodeBuildStatus { Snapshot.LatestBuild: { } run } project)
+            OpenUrl(project.BuildConsoleUrl(run));
+    }
+
     /// <summary>Re-reads just this environment/service (state + CPU/memory) instead of waiting for the target-wide poll.</summary>
     private async void OnRefreshResource(object? sender, RoutedEventArgs e)
     {
@@ -332,6 +365,7 @@ public partial class DashboardView : UserControl
         ActionStatus.Text = $"Refreshing {r.DisplayName}…";
         try
         {
+            using var activity = _session.Activity.Begin(target.Id, target.DisplayName, r.DisplayName, r.ResourceKey);
             await _session.Health.RefreshResourceAsync(target, r, CancellationToken.None);
             ActionStatus.Text = $"{r.DisplayName} refreshed at {DateTime.Now:T}.";
         }
@@ -426,6 +460,7 @@ public partial class DashboardView : UserControl
             RdsInstanceStatus => ("CPU", "Connections % of max"),
             CacheStatus => ("Engine CPU", "Memory used"),
             Ec2InstanceStatus => ("CPU", "Memory (CW agent)"),
+            RedshiftStatus => ("CPU", "Memory (not measured)"),
             _ => ("CPU", "Memory"),
         };
         (double, double)? storage = r is RdsInstanceStatus { Snapshot.IsAurora: false } ? HealthRules.ResolveStorageThresholds(settings, r.ResourceKey) : null;
@@ -485,6 +520,9 @@ public partial class DashboardView : UserControl
             {
                 EbEnvironmentStatus env => (target, env.Snapshot.EnvironmentName),
                 LoadBalancerStatus lb => (target, lb.Snapshot.Name),
+                VpnConnectionStatus vpn => (target, vpn.Snapshot.Id),
+                CodeBuildStatus build => (target, build.Snapshot.Name),
+                StackStatus stack => (target, stack.Snapshot.Name),
                 _ => null,
             }
             : null;
@@ -493,11 +531,13 @@ public partial class DashboardView : UserControl
     {
         if (sender is not Control { Tag: CauseItem cause } || OwningCauseResource(sender) is not var (target, name))
             return;
-        var dialog = new CauseSuppressDialog(target, name, cause.Text);
+        var dialog = new CauseSuppressDialog(target, name, cause.Text, cause.Instance, cause.InstanceLabel);
         if (!await Dialogs.ShowAsync(dialog, Dialogs.OwnerOf(this)) || dialog.Result is not { } rule)
             return;
         var settings = _session.Settings.Settings;
-        if (!settings.SuppressedCauses.Any(s => s.Pattern == rule.Pattern && s.TargetId == rule.TargetId && s.EnvironmentName == rule.EnvironmentName))
+        // Suppressions of earlier failures of the same cause are done with.
+        settings.SuppressedCauses.RemoveAll(s => s.OnlyFor is not null && s.Pattern == rule.Pattern && s.TargetId == rule.TargetId && s.EnvironmentName == rule.EnvironmentName);
+        if (!settings.SuppressedCauses.Any(s => s.Pattern == rule.Pattern && s.TargetId == rule.TargetId && s.EnvironmentName == rule.EnvironmentName && s.OnlyFor == rule.OnlyFor))
             settings.SuppressedCauses.Add(rule);
         _session.Settings.SaveSettings(settings);
         _session.Health.Reevaluate();
@@ -511,6 +551,7 @@ public partial class DashboardView : UserControl
         var removed = settings.SuppressedCauses.RemoveAll(rule =>
             (rule.TargetId is null || rule.TargetId == target.Id) &&
             (rule.EnvironmentName is null || rule.EnvironmentName == name) &&
+            (rule.OnlyFor is null || rule.OnlyFor == cause.Instance) &&
             HealthRules.WildcardMatch(HealthRules.NormalizeCause(rule.Pattern), HealthRules.NormalizeCause(cause.Text)));
         if (removed == 0)
             return;
@@ -769,6 +810,7 @@ public partial class DashboardView : UserControl
         {
             ActionStatus.Text = $"{description} failed: {(ex is Amazon.Runtime.AmazonServiceException a ? $"{a.ErrorCode}: {a.Message}" : ex.Message)}";
             ActionStatus.Foreground = LevelToBrushConverter.Critical;
+            App.Current.AskToSignInIfNeeded(ex);
         }
     }
 

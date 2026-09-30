@@ -28,10 +28,14 @@ public static class TrayStatusCalculator
             if (!byId.TryGetValue(h.TargetId, out var target))
                 continue;
             foreach (var r in h.AllResources.Where(r => r.IsProblem))
-                problems.Add(new Problem(target.Id, target.DisplayName, r.DisplayName, r.ReasonText, r.Level, r.ConsoleUrl));
-            foreach (var alarm in h.OtherAlarms.Where(a => a.CountsAsProblem))
-                problems.Add(new Problem(target.Id, target.DisplayName, $"alarm {alarm.Name}", alarm.StateReason ?? "in ALARM", HealthLevel.Critical,
-                    $"https://{target.Region}.console.aws.amazon.com/cloudwatch/home?region={target.Region}#alarmsV2:alarm/{Uri.EscapeDataString(alarm.Name)}"));
+                problems.Add(new Problem(target.Id, target.DisplayName, r.DisplayName, r.ReasonText, r.Level, r.ConsoleUrl, Capped: r.Cap == AlertCap.Warning));
+            // Alarms not matched to a resource follow the target's cap.
+            if (target.AlertCap != AlertCap.Info)
+                foreach (var alarm in h.OtherAlarms.Where(a => a.CountsAsProblem))
+                    problems.Add(new Problem(target.Id, target.DisplayName, $"alarm {alarm.Name}", alarm.StateReason ?? "in ALARM",
+                        target.AlertCap == AlertCap.Warning ? HealthLevel.Warn : HealthLevel.Critical,
+                        $"https://{target.Region}.console.aws.amazon.com/cloudwatch/home?region={target.Region}#alarmsV2:alarm/{Uri.EscapeDataString(alarm.Name)}",
+                        Capped: target.AlertCap == AlertCap.Warning));
         }
 
         var usedProfiles = byId.Values.Select(t => t.ProfileName).ToHashSet();
@@ -47,13 +51,14 @@ public static class TrayStatusCalculator
 
         var halted = profiles.Where(p => p.State is CredentialState.Halted or CredentialState.Validating or CredentialState.Missing or CredentialState.SignInRequired)
             .Select(p => p.Profile).ToHashSet();
-        foreach (var target in byId.Values.Where(t => !halted.Contains(t.ProfileName)))
+        foreach (var target in byId.Values.Where(t => !halted.Contains(t.ProfileName) && t.AlertCap != AlertCap.Info))
             foreach (var kind in Enum.GetValues<JobKind>())
                 if (jobState(target.Id, kind) is { LastFailed: true } s)
-                    problems.Add(new Problem(target.Id, target.DisplayName, $"{kind.ToString().ToLowerInvariant()} sync", s.LastError ?? "failed", HealthLevel.Warn));
+                    problems.Add(new Problem(target.Id, target.DisplayName, $"{kind.ToString().ToLowerInvariant()} sync", s.LastError ?? "failed", HealthLevel.Warn,
+                        Capped: target.AlertCap == AlertCap.Warning));
 
         var ordered = problems.OrderByDescending(p => p.Level).ThenBy(p => p.TargetName).ThenBy(p => p.Resource).ToList();
-        var red = ordered.Any(p => p.Level == HealthLevel.Critical || (warningsTurnIconRed && p.Level == HealthLevel.Warn));
+        var red = ordered.Any(p => !p.Capped && (p.Level == HealthLevel.Critical || (warningsTurnIconRed && p.Level == HealthLevel.Warn)));
         return new TrayStatus(red, ordered);
     }
 }

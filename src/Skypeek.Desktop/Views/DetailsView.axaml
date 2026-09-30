@@ -57,6 +57,19 @@
                     </StackPanel>
                 </Border>
 
+                <Border Classes="panel" Margin="0,8,0,0" x:Name="ChangePanel">
+                    <StackPanel>
+                        <TextBlock Classes="section" Text="Change" Margin="0,0,0,2" />
+                        <WrapPanel Margin="0,4,0,0">
+                            <views:IconButton x:Name="EditButton" Classes="caution" Symbol="Edit" Content="Edit value…" Click="OnEditValue" Margin="0,0,6,4" />
+                            <views:IconButton x:Name="DeleteButton" Symbol="Delete" Content="Delete…" Click="OnDelete" Margin="0,0,6,4" />
+                            <views:IconButton x:Name="RestoreButton" Symbol="ArrowUndo" Content="Cancel deletion" Click="OnRestore" Margin="0,0,6,4" IsVisible="False" />
+                        </WrapPanel>
+                        <TextBlock Classes="caption" x:Name="ChangeHint" TextWrapping="Wrap" />
+                        <TextBlock x:Name="ChangeStatus" TextWrapping="Wrap" Margin="0,6,0,0" IsVisible="False" />
+                    </StackPanel>
+                </Border>
+
                 <DockPanel Margin="0,6,0,0">
                     <views:IconButton DockPanel.Dock="Right" x:Name="RefreshMetaButton" Symbol="ArrowClockwise" Content="Refresh metadata"
                                Click="OnRefreshMetadata" VerticalAlignment="Bottom" />

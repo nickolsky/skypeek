@@ -36,6 +36,26 @@ public partial class MainWindow : Window
         NetworkTab.Content = _network = new NetworkView(session);
         LogTab.Content = _log = new RequestLogView(session.Log);
         SettingsTab.Content = _settings = new SettingsView(session);
+        session.Activity.Changed += OnActivityChanged;
+        Closed += (_, _) => session.Activity.Changed -= OnActivityChanged;
+        ShowActivity();
+    }
+
+    private void OnActivityChanged() => Dispatcher.UIThread.Post(ShowActivity);
+
+    /// <summary>"Refreshing Prod: health, metrics and alarms (+2 queued)" next to Lock/Exit.</summary>
+    private void ShowActivity()
+    {
+        var items = _session.Activity.Items;
+        ActivityPanel.IsVisible = items.Count > 0;
+        if (items.Count == 0)
+            return;
+        var running = items.Where(i => !i.Waiting).ToList();
+        var queued = items.Count - running.Count;
+        var shown = running.Count > 0 ? running : items.ToList();
+        var text = string.Join("; ", shown.GroupBy(i => i.TargetName).Select(g => $"{g.Key}: {string.Join(", ", g.Select(i => i.What).Distinct())}"));
+        ActivityText.Text = $"Refreshing {text}{(queued > 0 && running.Count > 0 ? $" (+{queued} queued)" : "")}";
+        ToolTip.SetTip(ActivityPanel, string.Join(Environment.NewLine, items.Select(i => i.Text)));
     }
 
     /// <summary>Set when the app exits or the session ends; otherwise closing only hides the window.</summary>
@@ -69,6 +89,20 @@ public partial class MainWindow : Window
         _logs.Open(target, resource, focus);
     }
 
+    /// <summary>Any Network tab node by key (e.g. a subnet from the reach check).</summary>
+    public void OpenNetworkNode(string key)
+    {
+        Tabs.SelectedItem = NetworkTab;
+        _network.Reveal(key);
+    }
+
+    /// <summary>"Analyze reach", starting from a resource or interface (by key) when given.</summary>
+    public void OpenReach(string? fromKey = null)
+    {
+        var dialog = new ReachDialog(_session, fromKey);
+        dialog.Show(this);
+    }
+
     /// <summary>A security group chip on the dashboard: show it on the Network tab.</summary>
     public void OpenNetwork(Core.Models.Target target, string securityGroupId)
     {
@@ -86,6 +120,13 @@ public partial class MainWindow : Window
         return true;
     }
 
+    /// <summary>A resource from the Network tab ("used by"): select it on the dashboard.</summary>
+    public void RevealResource(string resourceKey)
+    {
+        Tabs.SelectedItem = DashboardTab;
+        _dashboard.Reveal(resourceKey);
+    }
+
     public void OnStatusChanged(TrayStatus status)
     {
         DashboardTab.Header = status.Count == 0 ? "Dashboard" : $"Dashboard ({status.Count})";
@@ -101,6 +142,8 @@ public partial class MainWindow : Window
         _network.Wipe();
         UsagePanel.ClearCache();
         ListenersPanel.ClearCache();
+        BuildHistoryPanel.ClearCache();
+        StackHistoryPanel.ClearCache();
         HistoryPanel.ClearCache();
         Hide();
     }

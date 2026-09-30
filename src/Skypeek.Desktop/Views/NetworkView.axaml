@@ -216,6 +216,7 @@
                                IsVisible="{Binding HasInstance}" />
                     <views:IconButton Content="Open in console" Symbol="Open" Click="OnOpenConsole" Margin="0,0,6,4" />
                     <views:IconButton Content="Copy IP" Symbol="Copy" Click="OnCopyText" Tag="{Binding Interface.PrivateIp}" Margin="0,0,6,4" />
+                    <views:IconButton Content="Check reach from here…" Symbol="PlugConnected" Click="OnAnalyzeReach" Tag="{Binding Interface.Id, StringFormat='eni:{0}'}" Margin="0,0,6,4" />
                 </WrapPanel>
                 <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="Used by" /><TextBlock Classes="value" Text="{Binding Interface.Owner}" MaxWidth="520" /></StackPanel>
                 <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="Addresses" /><TextBlock Classes="value" Text="{Binding Interface.AddressText}" FontFamily="{StaticResource MonoFont}" MaxWidth="520" /></StackPanel>
@@ -320,6 +321,19 @@
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
+                <StackPanel IsVisible="{Binding ResourceList.Count, Converter={StaticResource HasItems}}">
+                    <TextBlock Classes="section" Text="Resources using it" />
+                    <ItemsControl ItemsSource="{Binding ResourceList}">
+                        <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Button Padding="6,1" Margin="0,0,6,4" Click="OnShowResource" Tag="{Binding ResourceKey}" ToolTip.Tip="Show it on the dashboard">
+                                    <TextBlock Text="{Binding Text}" />
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
                 <StackPanel IsVisible="{Binding ReferencedBy.Count, Converter={StaticResource HasItems}}">
                     <TextBlock Classes="section" Text="Allowed as a source by" />
                     <ContentControl Content="{Binding ReferencedBy}" ContentTemplate="{StaticResource GroupChips}" />
@@ -335,10 +349,13 @@
         </Grid.RowDefinitions>
 
         <WrapPanel>
+            <views:IconButton Symbol="PlugConnected" Content="Analyze reach…" Click="OnAnalyzeReach" Margin="0,0,6,4"
+                       ToolTip.Tip="Can one server (or IP) reach another? Checks security groups, network ACLs and routes" />
             <views:IconButton Symbol="ArrowDownload" Content="Download all now" Click="OnDownloadAll" Margin="0,0,14,4"
                        ToolTip.Tip="Download VPCs, subnets, interfaces and security groups for every target now" />
-            <TextBox x:Name="SearchBox" Width="300" Margin="0,0,10,4" PlaceholderText="Search (Ctrl+F): IP, CIDR, sg-…, eni-…, name, port…"
+            <TextBox x:Name="SearchBox" Width="300" Margin="0,0,10,4" views:SearchBoxClear.Enabled="True" PlaceholderText="Search (Ctrl+F): IP, CIDR, sg-…, eni-…, name, port…"
                         TextChanged="OnSearchChanged" KeyDown="OnSearchKeyDown" />
+            <CheckBox x:Name="IncludeWorld" Content="Include rules open to everyone (0.0.0.0/0)" Margin="0,0,10,4" IsVisible="False" IsCheckedChanged="OnIncludeWorldChanged" />
             <Button Content="Collapse all" Click="OnCollapseAll" Margin="0,0,14,4" />
             <TextBlock Classes="body" x:Name="Summary" VerticalAlignment="Center" Margin="0,0,14,0" />
             <TextBlock Classes="body" x:Name="ActionStatus" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="700" />
@@ -351,6 +368,28 @@
                 <ColumnDefinition Width="5*" MinWidth="340" />
             </Grid.ColumnDefinitions>
 
+            <DockPanel>
+            <!-- IP / CIDR / sg-… search: what has the address, and which rules let it in or out. -->
+            <Border x:Name="MatchPanel" Classes="panel" DockPanel.Dock="Top" Margin="0,0,0,6" Padding="10,8" IsVisible="False">
+                <DockPanel>
+                    <TextBlock x:Name="MatchHeader" DockPanel.Dock="Top" Classes="body" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,0,0,4" />
+                    <ScrollViewer MaxHeight="240" VerticalScrollBarVisibility="Auto">
+                        <ItemsControl x:Name="MatchList">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="views:SearchRow">
+                                    <Button Classes="transparent" Padding="4,2" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Click="OnMatchClick" Tag="{Binding Key}">
+                                        <StackPanel Orientation="Horizontal">
+                                            <Ellipse Classes="dot" Fill="{Binding Level, Converter={StaticResource LevelToBrush}}" Margin="0,0,8,0" VerticalAlignment="Center" />
+                                            <TextBlock Classes="body" Text="{Binding Title}" FontWeight="SemiBold" Margin="0,0,8,0" VerticalAlignment="Center" />
+                                            <TextBlock Classes="caption" Text="{Binding Detail}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="560" />
+                                        </StackPanel>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
             <Border Classes="panel" Padding="4">
                 <TreeView x:Name="Tree" Background="Transparent" BorderThickness="0" Foreground="{StaticResource TextNormal}" Padding="0,0,16,14"
                           SelectionChanged="OnSelected">
@@ -388,6 +427,7 @@
                     </TreeView.ItemTemplate>
                 </TreeView>
             </Border>
+            </DockPanel>
 
             <GridSplitter Grid.Column="1" Width="8" HorizontalAlignment="Stretch" Background="Transparent" />
 

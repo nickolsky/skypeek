@@ -67,7 +67,146 @@ public partial class DetailsView : UserControl
                 ? "SecureString: calls ssm:GetParameter with decryption using the read-only key."
                 : "Calls ssm:GetParameter with the read-only key.") + " Values are never stored and hide after 30 seconds.";
         RenderMetadata();
+        var canChange = !string.IsNullOrEmpty(target.ElevatedProfileName);
+        EditButton.IsEnabled = DeleteButton.IsEnabled = canChange;
+        RestoreButton.IsVisible = false;
+        ChangeStatus.IsVisible = false;
+        ChangeHint.Text = !canChange
+            ? "Set an elevated key for this target (Settings → Accounts & regions) to change or delete it."
+            : _item.Kind == CatalogKind.Secret
+                ? "Uses the elevated key and asks each time. Deleting schedules it for deletion (7–30 days, can be cancelled) and asks you to type the name."
+                : "Uses the elevated key and asks each time. Deleting is immediate and permanent and asks you to type the name.";
     }
+
+    // ---------------- change ----------------
+
+    private void ChangeResult(string text, bool ok)
+    {
+        ChangeStatus.Text = text;
+        ChangeStatus.Foreground = ok ? LevelToBrushConverter.Ok : LevelToBrushConverter.Critical;
+        ChangeStatus.IsVisible = true;
+    }
+
+    /// <summary>Fresh metadata (version, last change) so the edit can tell when someone else changed it meanwhile.</summary>
+    private async Task<CatalogItem> FreshAsync(Target target, CatalogItem item)
+    {
+        try
+        {
+            var fresh = item.Kind == CatalogKind.Secret
+                ? await _session.Gateway.DescribeSecretAsync(target, item.Arn ?? item.Name, CancellationToken.None)
+                : await _session.Gateway.DescribeParameterAsync(target, item.Name, CancellationToken.None);
+            return fresh ?? item;
+        }
+        catch (Exception ex) when (ex is not ElevationDeniedException)
+        {
+            return item;
+        }
+    }
+
+    private async void OnEditValue(object? sender, RoutedEventArgs e)
+    {
+        if (_item is null || CurrentTarget is not { } target)
+            return;
+        var item = await FreshAsync(target, _item);
+        var dialog = new SecretEditorDialog(item.Kind, item, _value, [], async () =>
+        {
+            try
+            {
+                var current = item.Kind == CatalogKind.Secret
+                    ? await _session.Gateway.GetSecretValueAsync(target, item.Arn ?? item.Name, elevated: true, CancellationToken.None)
+                    : await _session.Gateway.GetParameterValueAsync(target, item.Name, item.IsSecureParameter, elevated: true, CancellationToken.None);
+                return current.Value;
+            }
+            catch (Exception ex)
+            {
+                ChangeResult($"Could not read the current value: {Describe(ex)}", false);
+                return null;
+            }
+        });
+        if (!await Dialogs.ShowAsync(dialog, Dialogs.OwnerOf(this)) || dialog.Result is not { } edit)
+            return;
+        try
+        {
+            if (item.Kind == CatalogKind.Secret)
+                await _session.Gateway.UpdateSecretValueAsync(target, item, edit.Value, CancellationToken.None);
+            else
+                await _session.Gateway.PutParameterValueAsync(target, item, edit.Value, CancellationToken.None);
+            Wipe();
+            var saved = await FreshAsync(target, item);
+            saved.FirstSeen = item.FirstSeen;
+            _session.Catalog.Upsert(saved);
+            ChangeResult($"Saved at {DateTime.Now:T}{(saved.Version is { } v ? $" (version {v})" : "")}.", true);
+        }
+        catch (Exception ex)
+        {
+            ChangeResult(ex is ElevationDeniedException ? "Not approved; nothing was sent to AWS." : $"Not saved: {Describe(ex)}", false);
+            App.Current.AskToSignInIfNeeded(ex);
+        }
+    }
+
+    private async void OnDelete(object? sender, RoutedEventArgs e)
+    {
+        if (_item is null || CurrentTarget is not { } target)
+            return;
+        var item = _item;
+        var days = 30;
+        if (item.Kind == CatalogKind.Secret)
+        {
+            // The longest recovery window: a mistaken delete can be undone for a month.
+            var keep = await ConfirmDialog.AskAsync(Dialogs.OwnerOf(this), $"Delete {item.Name}?",
+                $"The secret is scheduled for deletion in {days} days and can be restored until then (Cancel deletion). "
+                + "Reading it fails right away. Next, the permission dialog asks you to type the name.",
+                "Continue…", danger: true);
+            if (!keep)
+                return;
+        }
+        try
+        {
+            if (item.Kind == CatalogKind.Secret)
+                await _session.Gateway.DeleteSecretAsync(target, item, days, CancellationToken.None);
+            else
+                await _session.Gateway.DeleteParameterAsync(target, item, CancellationToken.None);
+            Wipe();
+            _session.Catalog.Remove(item.TargetId, item.Kind, item.Name);
+            if (item.Kind == CatalogKind.Secret)
+            {
+                ChangeResult($"Scheduled for deletion on {DateTime.Now.AddDays(days):D}. Cancel deletion brings it back.", true);
+                RestoreButton.IsVisible = true;
+                EditButton.IsEnabled = DeleteButton.IsEnabled = false;
+            }
+            else
+            {
+                ChangeResult("Deleted.", true);
+                EditButton.IsEnabled = DeleteButton.IsEnabled = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            ChangeResult(ex is ElevationDeniedException ? "Not approved; nothing was sent to AWS." : $"Not deleted: {Describe(ex)}", false);
+            App.Current.AskToSignInIfNeeded(ex);
+        }
+    }
+
+    private async void OnRestore(object? sender, RoutedEventArgs e)
+    {
+        if (_item is null || CurrentTarget is not { } target)
+            return;
+        try
+        {
+            await _session.Gateway.RestoreSecretAsync(target, _item, CancellationToken.None);
+            var restored = await FreshAsync(target, _item);
+            _session.Catalog.Upsert(restored);
+            RestoreButton.IsVisible = false;
+            EditButton.IsEnabled = DeleteButton.IsEnabled = true;
+            ChangeResult("Deletion cancelled; the secret is back.", true);
+        }
+        catch (Exception ex)
+        {
+            ChangeResult(ex is ElevationDeniedException ? "Not approved; nothing was sent to AWS." : $"Could not cancel the deletion: {Describe(ex)}", false);
+        }
+    }
+
+    private static string Describe(Exception ex) => ex is AmazonServiceException a ? $"{a.ErrorCode}: {a.Message}" : ex.Message;
 
     private void RenderMetadata()
     {
@@ -138,6 +277,7 @@ public partial class DetailsView : UserControl
         catch (Exception ex) when (ex is CredentialsUnavailableException or InvalidOperationException)
         {
             ShowError(ex.Message);
+            App.Current.AskToSignInIfNeeded(ex);
         }
         catch (Exception ex)
         {

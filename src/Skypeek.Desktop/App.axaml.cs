@@ -39,6 +39,11 @@ public partial class App : Application
     private NativeMenuItem? _problemsItem;
     private NativeMenu? _trayMenu;
     private NativeMenuItem? _updateItem;
+    private NativeMenuItem? _notifyItem;
+    private NativeMenuItem? _signInItem;
+    private SignInDialog? _signInDialog;
+    /// <summary>A sign-in ended while locked: ask after the next unlock.</summary>
+    private bool _signInPending;
     private NativeMenuItemSeparator? _updateSeparator;
     private DispatcherTimer? _idleTimer;
     private DispatcherTimer? _statusDebounce;
@@ -165,12 +170,18 @@ public partial class App : Application
         var menu = _trayMenu = new NativeMenu();
         _problemsItem = Item("Problems (0)", () => RequestUi(UiTarget.Problems));
         menu.Items.Add(_problemsItem);
+        _signInItem = Item("Sign in to AWS…", () => ShowPendingSignIns());
+        _signInItem.IsVisible = false;
+        menu.Items.Add(_signInItem);
         menu.Items.Add(new NativeMenuItemSeparator());
         menu.Items.Add(Item("Search…", () => RequestUi(UiTarget.Search)));
         menu.Items.Add(Item("Dashboard", () => RequestUi(UiTarget.Dashboard)));
         menu.Items.Add(Item("Request log", () => RequestUi(UiTarget.RequestLog)));
         menu.Items.Add(Item("Refresh all", () => { if (Session is not null) Session.Scheduler.RunNow(); else RequestUi(UiTarget.None); }));
         menu.Items.Add(Item("Settings", () => RequestUi(UiTarget.Settings)));
+        _notifyItem = new NativeMenuItem("Notifications") { ToggleType = MenuItemToggleType.CheckBox, IsChecked = true, IsEnabled = false };
+        _notifyItem.Click += (_, _) => ToggleNotifications();
+        menu.Items.Add(_notifyItem);
         menu.Items.Add(new NativeMenuItemSeparator());
         menu.Items.Add(Item("Lock now", LockNow));
         menu.Items.Add(Item("Exit", ExitApp));
@@ -191,6 +202,28 @@ public partial class App : Application
             item.Click += (_, _) => action();
             return item;
         }
+    }
+
+    /// <summary>Tray shortcut for Settings → General → Notifications ("notify me when something breaks").</summary>
+    private void ToggleNotifications()
+    {
+        if (Session is null || IsLocked)
+        {
+            RequestUi(UiTarget.Settings);
+            return;
+        }
+        var settings = Session.Settings.Settings;
+        settings.NotifyProblems = !settings.NotifyProblems;
+        Session.Settings.SaveSettings(settings);
+        RefreshNotifyItem();
+    }
+
+    private void RefreshNotifyItem()
+    {
+        if (_notifyItem is null)
+            return;
+        _notifyItem.IsEnabled = Session is not null && !IsLocked;
+        _notifyItem.IsChecked = Session?.Settings.Settings.NotifyProblems ?? true;
     }
 
     /// <summary>A "restart to install" item at the top of the tray menu while a downloaded update waits.</summary>
@@ -238,6 +271,7 @@ public partial class App : Application
 
     private void RefreshTrayStatus()
     {
+        RefreshNotifyItem();
         if (Session is null)
         {
             if (_tray is not null)
@@ -248,7 +282,10 @@ public partial class App : Application
             return;
         }
 
+        RefreshNotifyItem();
         _status = Session.ComputeTrayStatus();
+        if (_signInItem is not null)
+            _signInItem.IsVisible = SignInItems(null).Count > 0;
         if (_tray is not null)
         {
             _tray.Icon = IconRenderer.Create(_status.IsRed, _status.Count);
@@ -357,6 +394,102 @@ public partial class App : Application
             Open(then);
         if (Session is not null && Session.Settings.Targets.Count == 0)
             Open(UiTarget.Settings);
+        if (_signInPending)
+        {
+            _signInPending = false;
+            ShowPendingSignIns();
+        }
+    }
+
+    // ---------------- AWS SSO sign-in ----------------
+
+    /// <summary>
+    /// Ended sign-ins worth asking about: profiles that are the read-only key of an enabled target whose alerts are not
+    /// "info only". <paramref name="only"/> limits it to profiles that just ended.
+    /// </summary>
+    private List<SignInItem> SignInItems(IReadOnlyCollection<string>? only)
+    {
+        if (Session is not { } session)
+            return [];
+        var targets = session.Settings.Targets.Where(t => t.Enabled && t.AlertCap != Core.Models.AlertCap.Info).ToList();
+        var profiles = session.Monitor.Profiles;
+        var ended = session.Monitor.GetStatuses()
+            .Where(s => s.State == Core.Credentials.CredentialState.SignInRequired && (only is null || only.Contains(s.Profile)))
+            .Select(s => s.Profile)
+            .Where(p => targets.Any(t => t.ProfileName == p) && profiles.TryGetValue(p, out var c) && c.Sso is not null)
+            .ToList();
+        return ended.GroupBy(p => profiles[p].Sso!.TokenCacheFile, StringComparer.OrdinalIgnoreCase).Select(g =>
+        {
+            var sso = profiles[g.First()].Sso!;
+            var names = g.OrderBy(p => p).ToList();
+            var targetNames = targets.Where(t => names.Contains(t.ProfileName)).Select(t => t.DisplayName).Distinct().ToList();
+            var when = sso.AccessToken is null ? "not signed in" : $"ended {sso.TokenExpiresUtc?.ToLocalTime():g}";
+            return new SignInItem(g.Key, names[0], sso.SessionName is { } s ? $"{s} ({sso.StartUrl})" : sso.StartUrl,
+                $"{when} · {string.Join(", ", targetNames)}", names);
+        }).ToList();
+    }
+
+    private void OnSignInEnded(IReadOnlyList<string> profiles)
+    {
+        RefreshTrayStatus();
+        if (Session is not { } session || !session.Settings.Settings.NotifySignIn || SignInItems(profiles.ToList()) is not { Count: > 0 } items)
+            return;
+        if (IsLocked)
+        {
+            _signInPending = true;
+            new DesktopNotifier(() => true).Notify("AWS sign-in ended", "");
+            return;
+        }
+        ShowSignIn(items);
+    }
+
+    private void OnSignInRestored(IReadOnlyList<string> profiles)
+    {
+        _signInDialog?.Restored(profiles.ToList());
+        RefreshTrayStatus();
+    }
+
+    private void ShowPendingSignIns()
+    {
+        if (Session is null || IsLocked)
+        {
+            RequestUi(UiTarget.None);
+            _signInPending = true;
+            return;
+        }
+        if (SignInItems(null) is { Count: > 0 } items)
+            ShowSignIn(items);
+    }
+
+    private void ShowSignIn(List<SignInItem> items)
+    {
+        if (_signInDialog is not null)
+        {
+            _signInDialog.Add(items);
+            _signInDialog.Activate();
+            return;
+        }
+        var dialog = _signInDialog = new SignInDialog();
+        dialog.Add(items);
+        dialog.Closed += (_, _) => _signInDialog = null;
+        _ = Dialogs.ShowAsync(dialog, VisibleMain);
+    }
+
+    /// <summary>An action failed because its profile's SSO sign-in has ended: offer to sign in.</summary>
+    public void AskToSignInIfNeeded(Exception ex)
+    {
+        if (ex is Core.Credentials.CredentialsUnavailableException c
+            && Session?.Monitor.GetStatus(c.Profile).State == Core.Credentials.CredentialState.SignInRequired)
+            AskToSignIn(c.Profile);
+    }
+
+    /// <summary>An elevated action needs a sign-in: the same dialog, for that profile.</summary>
+    public void AskToSignIn(string profile)
+    {
+        if (Session?.Monitor.Profiles.TryGetValue(profile, out var creds) != true || creds!.Sso is not { } sso)
+            return;
+        ShowSignIn([new SignInItem(sso.TokenCacheFile, profile, sso.SessionName is { } s ? $"{s} ({sso.StartUrl})" : sso.StartUrl,
+            $"needed for {profile}", [profile])]);
     }
 
     private async Task StartSessionAsync(Vault vault)
@@ -374,6 +507,11 @@ public partial class App : Application
         session.Monitor.StatusChanged += ScheduleStatusRefresh;
         session.Scheduler.JobCompleted += (_, _, _) => ScheduleStatusRefresh();
         session.Settings.Changed += ScheduleStatusRefresh;
+        session.Monitor.SignInEnded += profiles => Dispatcher.UIThread.Post(() => OnSignInEnded(profiles));
+        session.Monitor.SignInRestored += profiles => Dispatcher.UIThread.Post(() => OnSignInRestored(profiles));
+        // Sign-ins that ended while the app was closed were reported before these handlers existed.
+        if (!Headless)
+            Dispatcher.UIThread.Post(() => OnSignInEnded(session.Monitor.GetStatuses().Select(s => s.Profile).ToList()));
     }
 
     public void ResetVault()

@@ -5,8 +5,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="AWSSDK.CloudFormation" Version="4.0.102.8" />
     <PackageReference Include="AWSSDK.CloudWatch" Version="4.0.105" />
     <PackageReference Include="AWSSDK.CloudWatchLogs" Version="4.0.104.3" />
+    <PackageReference Include="AWSSDK.CodeBuild" Version="4.0.101.15" />
     <PackageReference Include="AWSSDK.CostExplorer" Version="4.0.100.14" />
     <PackageReference Include="AWSSDK.EC2" Version="4.0.124" />
     <PackageReference Include="AWSSDK.ECS" Version="4.0.105.1" />
@@ -15,6 +17,8 @@
     <PackageReference Include="AWSSDK.ElasticLoadBalancingV2" Version="4.0.101.11" />
     <PackageReference Include="AWSSDK.Pricing" Version="4.0.100.14" />
     <PackageReference Include="AWSSDK.RDS" Version="4.0.105.3" />
+    <PackageReference Include="AWSSDK.Redshift" Version="4.0.102.6" />
+    <PackageReference Include="AWSSDK.RedshiftServerless" Version="4.0.102.6" />
     <PackageReference Include="AWSSDK.SecretsManager" Version="4.0.100.14" />
     <PackageReference Include="AWSSDK.SecurityToken" Version="4.0.101" />
     <PackageReference Include="AWSSDK.SimpleSystemsManagement" Version="4.0.103.9" />

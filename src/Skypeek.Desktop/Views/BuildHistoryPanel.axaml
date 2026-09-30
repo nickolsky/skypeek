@@ -1,0 +1,58 @@
+<UserControl x:Class="Skypeek.Desktop.Views.BuildHistoryPanel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="using:Skypeek.Desktop.Views"
+             xmlns:models="using:Skypeek.Core.Models">
+    <StackPanel Margin="0,4,0,4">
+        <DockPanel>
+            <views:IconButton x:Name="ReloadButton" DockPanel.Dock="Right" Content="Reload" Symbol="ArrowClockwise" Padding="8,2"
+                              Click="OnReload" VerticalAlignment="Top" />
+            <TextBlock Classes="section" Text="Build history" Margin="0,0,0,2" />
+        </DockPanel>
+        <TextBlock Classes="caption" x:Name="StatusText" TextWrapping="Wrap" Margin="0,0,0,4" />
+        <ItemsControl x:Name="BuildList">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="models:CodeBuildRun">
+                    <Expander Margin="0,0,0,4" HorizontalAlignment="Stretch" Padding="10,4">
+                        <Expander.Header>
+                            <DockPanel>
+                                <Button DockPanel.Dock="Right" Content="Open" Padding="6,1" Click="OnOpenBuild" Tag="{Binding}" VerticalAlignment="Center"
+                                        ToolTip.Tip="Open this build (with its log) in the AWS console" />
+                                <StackPanel Orientation="Horizontal">
+                                    <Ellipse Classes="dot" Fill="{Binding Level, Converter={StaticResource LevelToBrush}}" Margin="0,0,8,0" />
+                                    <TextBlock Classes="body" Text="{Binding NumberText}" FontWeight="SemiBold" VerticalAlignment="Center" Width="56" />
+                                    <TextBlock Classes="body" Text="{Binding Status}" VerticalAlignment="Center" Width="96" />
+                                    <TextBlock Classes="caption" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="420">
+                                        <TextBlock.Text>
+                                            <MultiBinding StringFormat="{}{0:g} · {1} · {2}">
+                                                <Binding Path="Started" Converter="{StaticResource LocalTime}" />
+                                                <Binding Path="DurationText" />
+                                                <Binding Path="ShortSource" />
+                                            </MultiBinding>
+                                        </TextBlock.Text>
+                                    </TextBlock>
+                                </StackPanel>
+                            </DockPanel>
+                        </Expander.Header>
+                        <StackPanel>
+                            <TextBlock Classes="caption" Text="{Binding Initiator, StringFormat='started by {0}'}" IsVisible="{Binding Initiator, Converter={StaticResource NotEmpty}}" />
+                            <ItemsControl ItemsSource="{Binding Phases}" Margin="0,4,0,0">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="models:CodeBuildPhase">
+                                        <TextBlock Classes="body" Text="{Binding Text}" TextWrapping="Wrap" FontFamily="{StaticResource MonoFont}" FontSize="11"
+                                                   Classes.failed="{Binding IsFailure}" />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Expander>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+    </StackPanel>
+    <UserControl.Styles>
+        <Style Selector="TextBlock.failed">
+            <Setter Property="Foreground" Value="#FFFF8A80" />
+        </Style>
+    </UserControl.Styles>
+</UserControl>

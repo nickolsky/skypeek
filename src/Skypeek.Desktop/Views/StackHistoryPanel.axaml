@@ -1,0 +1,41 @@
+<UserControl x:Class="Skypeek.Desktop.Views.StackHistoryPanel"
+             xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="using:Skypeek.Desktop.Views"
+             xmlns:models="using:Skypeek.Core.Models">
+    <StackPanel Margin="0,4,0,4">
+        <DockPanel>
+            <views:IconButton x:Name="ReloadButton" DockPanel.Dock="Right" Content="Reload" Symbol="ArrowClockwise" Padding="8,2"
+                              Click="OnReload" VerticalAlignment="Top" />
+            <TextBlock Classes="section" Text="Stack history" Margin="0,0,0,2" />
+        </DockPanel>
+        <TextBlock Classes="caption" x:Name="StatusText" TextWrapping="Wrap" Margin="0,0,0,4" />
+        <ItemsControl x:Name="OperationList">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="models:StackOperation">
+                    <Expander Margin="0,0,0,4" HorizontalAlignment="Stretch" Padding="10,4">
+                        <Expander.Header>
+                            <StackPanel Orientation="Horizontal">
+                                <Ellipse Classes="dot" Fill="{Binding Level, Converter={StaticResource LevelToBrush}}" Margin="0,0,8,0" />
+                                <StackPanel>
+                                    <TextBlock Classes="body" Text="{Binding Title}" FontWeight="SemiBold" />
+                                    <TextBlock Classes="caption" Text="{Binding Detail}" TextWrapping="Wrap" MaxWidth="560" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Expander.Header>
+                        <ItemsControl ItemsSource="{Binding Events}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="models:StackEventInfo">
+                                    <StackPanel Orientation="Horizontal" Margin="0,1">
+                                        <Ellipse Classes="dot" Width="7" Height="7" Fill="{Binding Level, Converter={StaticResource LevelToBrush}}" Margin="0,0,6,0" VerticalAlignment="Top" />
+                                        <TextBlock Classes="body" Text="{Binding Text}" TextWrapping="Wrap" FontSize="11" MaxWidth="600" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Expander>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+    </StackPanel>
+</UserControl>

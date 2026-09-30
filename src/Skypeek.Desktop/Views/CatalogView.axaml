@@ -19,14 +19,16 @@
             </Grid.RowDefinitions>
 
             <TextBox x:Name="Query" PlaceholderText="Search secrets and parameters (name, description, tags, target, region)…"
-                        TextChanged="OnQueryChanged" Classes="clearButton" />
+                        TextChanged="OnQueryChanged" views:SearchBoxClear.Enabled="True" />
 
             <WrapPanel Grid.Row="1" Margin="0,8,0,6">
                 <RadioButton x:Name="KindAll" Content="All" GroupName="kind" IsChecked="True" IsCheckedChanged="OnFilterChanged" MinWidth="60" />
                 <RadioButton x:Name="KindSecrets" Content="Secrets" GroupName="kind" IsCheckedChanged="OnFilterChanged" MinWidth="80" />
                 <RadioButton x:Name="KindParams" Content="Parameters" GroupName="kind" IsCheckedChanged="OnFilterChanged" MinWidth="95" Margin="0,0,8,0" />
                 <ComboBox x:Name="TargetFilter" MinWidth="150" SelectionChanged="OnFilterChanged" Margin="0,0,6,0" DisplayMemberBinding="{Binding Label}" />
-                <ComboBox x:Name="RegionFilter" MinWidth="120" SelectionChanged="OnFilterChanged" />
+                <ComboBox x:Name="RegionFilter" MinWidth="120" SelectionChanged="OnFilterChanged" Margin="0,0,10,0" />
+                <views:IconButton Content="New secret…" Symbol="Add" Click="OnNewSecret" Margin="0,0,6,0" ToolTip.Tip="Create a secret with a target's elevated key" />
+                <views:IconButton Content="New parameter…" Symbol="Add" Click="OnNewParameter" ToolTip.Tip="Create a parameter with a target's elevated key" />
             </WrapPanel>
 
             <Border Classes="panel" Grid.Row="2" Padding="2">

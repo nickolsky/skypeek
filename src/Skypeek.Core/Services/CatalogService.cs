@@ -33,6 +33,24 @@ public sealed class CatalogService
     public string? AccountOf(string profile) =>
         _monitor.Profiles.TryGetValue(profile, out var p) ? p.AccountId : null;
 
+    /// <summary>After an edit or create: replace (or add) this one item in the stored list.</summary>
+    public void Upsert(CatalogItem item)
+    {
+        var now = DateTime.UtcNow;
+        item.FetchedAt = now;
+        var others = _store.LoadAll().Where(i => i.TargetId == item.TargetId && i.Kind == item.Kind && i.Name != item.Name).ToList();
+        _store.ReplaceSnapshot(item.TargetId, item.Kind, [.. others, item], now);
+        ReloadIndex();
+    }
+
+    /// <summary>After a delete.</summary>
+    public void Remove(long targetId, CatalogKind kind, string name)
+    {
+        var rest = _store.LoadAll().Where(i => i.TargetId == targetId && i.Kind == kind && i.Name != name).ToList();
+        _store.ReplaceSnapshot(targetId, kind, rest, DateTime.UtcNow);
+        ReloadIndex();
+    }
+
     public async Task<int> SyncAsync(Target target, CancellationToken ct)
     {
         var total = 0;

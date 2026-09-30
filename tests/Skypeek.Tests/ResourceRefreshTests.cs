@@ -1,3 +1,4 @@
+using Skypeek.Core.Health;
 using Skypeek.Core;
 using Skypeek.Core.Models;
 using Skypeek.Core.Services;
@@ -20,7 +21,8 @@ public class ResourceRefreshTests
 
     private sealed class Quiet : INotifier
     {
-        public void Notify(string title, string message, string? detail = null) { }
+        public List<string> Sent { get; } = [];
+        public void Notify(string title, string message, string? detail = null) => Sent.Add($"{title}: {message}");
     }
 
     /// <summary>Only the calls a single refresh makes; anything else would mean it asked for too much.</summary>
@@ -148,12 +150,72 @@ public class ResourceRefreshTests
         public Task AddSecurityGroupRuleAsync(Target target, SecurityGroupInfo group, SecurityGroupRuleSpec rule, CancellationToken ct) => throw new NotSupportedException();
         public Task UpdateSecurityGroupRuleAsync(Target target, SecurityGroupInfo group, SecurityGroupRuleInfo current, SecurityGroupRuleSpec updated, CancellationToken ct) => throw new NotSupportedException();
         public Task DeleteSecurityGroupRuleAsync(Target target, SecurityGroupInfo group, SecurityGroupRuleInfo rule, CancellationToken ct) => throw new NotSupportedException();
+
+        public List<VpnConnectionSnapshot> Vpns { get; } = [];
+        public List<CodeBuildProjectSnapshot> Projects { get; } = [];
+        public List<StackSnapshot> Stacks { get; } = [];
+        public List<StackEventInfo> StackEvents { get; } = [];
+        public List<RedshiftSnapshot> Redshift { get; } = [];
+        /// <summary>Error code thrown by the CodeBuild read (e.g. AccessDeniedException).</summary>
+        public string? CodeBuildError { get; set; }
+
+        public Task<IReadOnlyList<VpnConnectionSnapshot>> GetVpnConnectionsAsync(Target target, CancellationToken ct, string? onlyId = null)
+        {
+            Calls.Add($"vpn:{onlyId}");
+            return Task.FromResult<IReadOnlyList<VpnConnectionSnapshot>>(Vpns.Where(v => onlyId is null || v.Id == onlyId).ToList());
+        }
+
+        public Task<IReadOnlyList<CodeBuildProjectSnapshot>> GetCodeBuildProjectsAsync(Target target, IReadOnlyDictionary<string, string> knownLatest, CancellationToken ct, string? onlyProject = null)
+        {
+            Calls.Add($"codebuild:{onlyProject}");
+            if (CodeBuildError is { } code)
+                throw new FakeServiceException(code, "User is not authorized to perform: codebuild:ListProjects");
+            return Task.FromResult<IReadOnlyList<CodeBuildProjectSnapshot>>(Projects.Where(p => onlyProject is null || p.Name == onlyProject).ToList());
+        }
+
+        public Task<IReadOnlyList<CodeBuildRun>> GetCodeBuildHistoryAsync(Target target, string project, int max, CancellationToken ct) => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<StackSnapshot>> GetStacksAsync(Target target, CancellationToken ct, string? onlyStack = null)
+        {
+            Calls.Add($"cfn:{onlyStack}");
+            return Task.FromResult<IReadOnlyList<StackSnapshot>>(Stacks.Where(s => onlyStack is null || s.Id == onlyStack).ToList());
+        }
+
+        public Task<IReadOnlyList<StackEventInfo>> GetStackEventsAsync(Target target, string stack, int max, CancellationToken ct)
+        {
+            Calls.Add($"cfn-events:{stack}");
+            return Task.FromResult<IReadOnlyList<StackEventInfo>>(StackEvents);
+        }
+
+        public Task<CatalogItem?> DescribeParameterAsync(Target target, string name, CancellationToken ct) => throw new NotSupportedException();
+        public Task UpdateSecretValueAsync(Target target, CatalogItem secret, string value, CancellationToken ct) => throw new NotSupportedException();
+        public Task CreateSecretAsync(Target target, string name, string value, string? description, string? kmsKeyId, CancellationToken ct) => throw new NotSupportedException();
+        public Task DeleteSecretAsync(Target target, CatalogItem secret, int recoveryDays, CancellationToken ct) => throw new NotSupportedException();
+        public Task RestoreSecretAsync(Target target, CatalogItem secret, CancellationToken ct) => throw new NotSupportedException();
+        public Task PutParameterValueAsync(Target target, CatalogItem parameter, string value, CancellationToken ct) => throw new NotSupportedException();
+        public Task CreateParameterAsync(Target target, string name, string value, string type, string? description, string? tier, string? kmsKeyId, CancellationToken ct) => throw new NotSupportedException();
+        public Task DeleteParameterAsync(Target target, CatalogItem parameter, CancellationToken ct) => throw new NotSupportedException();
+
+        public Task<AwsReachResult> VerifyReachAsync(Target target, string sourceId, string? destinationId, string? destinationIp, string protocol, int? port, CancellationToken ct) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyList<RedshiftSnapshot>> GetRedshiftAsync(Target target, CancellationToken ct, RedshiftSnapshot? only = null)
+        {
+            Calls.Add($"redshift:{only?.Id}");
+            return Task.FromResult<IReadOnlyList<RedshiftSnapshot>>(Redshift.Where(r => only is null || r.Id == only.Id).ToList());
+        }
+    }
+
+    /// <summary>Like an SDK service exception: an ErrorCode property (read by name, as Core does).</summary>
+    private sealed class FakeServiceException(string errorCode, string message) : Exception(message)
+    {
+        public string ErrorCode { get; } = errorCode;
     }
 
     private static Ec2InstanceSnapshot Instance(string id, string state = "running", Dictionary<string, string>? tags = null, string systemStatus = "ok") =>
         new() { InstanceId = id, State = state, InstanceType = "t3.small", PrivateIp = "10.0.1.5", Tags = tags ?? new() { ["Name"] = id }, SystemStatus = systemStatus, InstanceStatus = "ok" };
 
-    private static (MemoryStores, SettingsService, FakeGateway, HealthService, Target) Ec2Setup()
+    private static (MemoryStores, SettingsService, FakeGateway, HealthService, Target) Ec2Setup(Quiet? notifier = null)
     {
         var stores = new MemoryStores();
         var settings = new SettingsService(stores);
@@ -161,7 +223,7 @@ public class ResourceRefreshTests
         gateway.Instances.Add(Instance("i-web"));
         gateway.Instances.Add(Instance("i-eb", tags: new() { ["elasticbeanstalk:environment-name"] = "shop-prod" }));
         gateway.Instances.Add(Instance("i-off", "stopped"));
-        var health = new HealthService(gateway, stores, settings, new Quiet());
+        var health = new HealthService(gateway, stores, settings, notifier ?? new Quiet());
         var target = stores.Targets[0];
         target.EcsEnabled = target.RdsEnabled = target.CacheEnabled = false;
         return (stores, settings, gateway, health, target);
@@ -212,6 +274,193 @@ public class ResourceRefreshTests
         gateway.Calls.Clear();
         await health.RefreshResourceAsync(target, web, CancellationToken.None);
         Assert.Equal(["ec2:i-web", "metrics:1"], gateway.Calls);
+    }
+
+    [Fact]
+    public async Task Alert_caps_lower_or_mute_problems_and_resources_override_their_target()
+    {
+        var notifier = new Quiet();
+        var (_, settings, gateway, health, target) = Ec2Setup(notifier);
+        gateway.Instances[0] = Instance("i-web", systemStatus: "impaired");
+
+        // Target capped at warning: still a problem, never red, still notified (as a warning).
+        target.AlertCap = AlertCap.Warning;
+        await health.PollHealthAsync(target, CancellationToken.None);
+        var web = health.Get(1)!.Ec2.Single(e => e.Snapshot.InstanceId == "i-web");
+        Assert.Equal(HealthLevel.Warn, web.Level);
+        Assert.Equal(HealthLevel.Critical, web.UncappedLevel);
+        var tray = TrayStatusCalculator.Compute(settings.Targets, health.Snapshot(), [], (_, _) => null, warningsTurnIconRed: true);
+        Assert.Contains(tray.Problems, p => p.Resource.Contains("i-web") && p.Capped);
+        Assert.False(tray.IsRed);
+        Assert.Contains(notifier.Sent, m => m.Contains("Warning"));
+
+        // The resource override (info only) beats the target cap: shown, but not a problem and never notified.
+        settings.Settings.ResourceAlertCaps[web.ResourceKey] = AlertCap.Info;
+        health.Reevaluate();
+        web = health.Get(1)!.Ec2.Single(e => e.Snapshot.InstanceId == "i-web");
+        Assert.True(web.IsMuted);
+        Assert.False(web.IsProblem);
+        Assert.Equal(HealthLevel.Critical, web.Level);
+        Assert.Empty(TrayStatusCalculator.Compute(settings.Targets, health.Snapshot(), [], (_, _) => null, true).Problems);
+
+        // An override back to normal lifts the target cap for that one resource.
+        settings.Settings.ResourceAlertCaps[web.ResourceKey] = AlertCap.None;
+        health.Reevaluate();
+        Assert.True(TrayStatusCalculator.Compute(settings.Targets, health.Snapshot(), [], (_, _) => null, true).IsRed);
+    }
+
+    [Fact]
+    public async Task Notifications_can_be_turned_off_without_replaying_old_news_when_turned_on()
+    {
+        var notifier = new Quiet();
+        var (_, settings, gateway, health, target) = Ec2Setup(notifier);
+        settings.Settings.NotifyProblems = false;
+        gateway.Instances[0] = Instance("i-web", systemStatus: "impaired");
+        await health.PollHealthAsync(target, CancellationToken.None);
+        Assert.Empty(notifier.Sent);
+
+        settings.Settings.NotifyProblems = true;
+        await health.PollHealthAsync(target, CancellationToken.None);
+        Assert.Empty(notifier.Sent);
+        gateway.Instances[0] = Instance("i-web");
+        await health.PollHealthAsync(target, CancellationToken.None);
+        Assert.Contains(notifier.Sent, m => m.Contains("Recovered"));
+    }
+
+    private static (MemoryStores, SettingsService, FakeGateway, HealthService, Target) OpsSetup(Quiet notifier)
+    {
+        var stores = new MemoryStores();
+        var settings = new SettingsService(stores);
+        var gateway = new FakeGateway();
+        var health = new HealthService(gateway, stores, settings, notifier);
+        var target = stores.Targets[0];
+        target.EcsEnabled = target.RdsEnabled = target.CacheEnabled = target.Ec2Enabled = target.ElbEnabled = false;
+        return (stores, settings, gateway, health, target);
+    }
+
+    private static CodeBuildRun Run(string project, long number, string status) => new()
+    {
+        Id = $"{project}:{number:D4}", Number = number, Status = status, Started = DateTime.UtcNow.AddMinutes(-10), Ended = DateTime.UtcNow.AddMinutes(-2),
+        Phases = status == "FAILED" ? [new CodeBuildPhase("BUILD", "FAILED", 30, "COMMAND_EXECUTION_ERROR: npm test exited 1")] : [],
+    };
+
+    [Fact]
+    public async Task Failed_builds_are_critical_without_an_alarm_and_can_be_suppressed_for_one_failure()
+    {
+        var notifier = new Quiet();
+        var (_, settings, gateway, health, target) = OpsSetup(notifier);
+        gateway.Projects.Add(new CodeBuildProjectSnapshot { Name = "api", LatestBuild = Run("api", 41, "SUCCEEDED"), LastCompleted = Run("api", 41, "SUCCEEDED") });
+        await health.PollHealthAsync(target, CancellationToken.None);
+        Assert.Equal(HealthLevel.Ok, health.Get(1)!.Builds.Single().Level);
+
+        var failed = Run("api", 42, "FAILED");
+        gateway.Projects[0] = new CodeBuildProjectSnapshot { Name = "api", LatestBuild = failed, LastCompleted = failed };
+        await health.PollHealthAsync(target, CancellationToken.None);
+        var api = health.Get(1)!.Builds.Single();
+        Assert.Equal(HealthLevel.Critical, api.Level);
+        Assert.Contains("npm test", api.ReasonText);
+        Assert.Contains(notifier.Sent, m => m.Contains("Latest build failed"));
+
+        // A running build keeps the verdict of the last finished one.
+        gateway.Projects[0] = new CodeBuildProjectSnapshot { Name = "api", LatestBuild = Run("api", 43, "IN_PROGRESS") };
+        await health.PollHealthAsync(target, CancellationToken.None);
+        api = health.Get(1)!.Builds.Single();
+        Assert.True(api.IsBuilding);
+        Assert.Equal(HealthLevel.Critical, api.Level);
+
+        // "Only this failure": suppressed for build 42, but build 44 failing alerts again.
+        var item = api.CauseItems.Single();
+        settings.Settings.SuppressedCauses.Add(new CauseSuppression(item.Text, target.Id, "api", DateTime.UtcNow, OnlyFor: item.Instance));
+        health.Reevaluate();
+        Assert.Equal(HealthLevel.Ok, health.Get(1)!.Builds.Single().Level);
+        var again = Run("api", 44, "FAILED");
+        gateway.Projects[0] = new CodeBuildProjectSnapshot { Name = "api", LatestBuild = again, LastCompleted = again };
+        await health.PollHealthAsync(target, CancellationToken.None);
+        Assert.Equal(HealthLevel.Critical, health.Get(1)!.Builds.Single().Level);
+    }
+
+    [Fact]
+    public async Task Already_failed_resources_of_a_new_kind_are_shown_without_a_toast_each()
+    {
+        var notifier = new Quiet();
+        var (_, _, gateway, health, target) = OpsSetup(notifier);
+        var failed = Run("legacy", 7, "FAILED");
+        gateway.Projects.Add(new CodeBuildProjectSnapshot { Name = "legacy", LatestBuild = failed, LastCompleted = failed });
+        gateway.Stacks.Add(new StackSnapshot { Name = "old-stack", Id = "arn:stack/old", Status = "ROLLBACK_COMPLETE", Created = DateTime.UtcNow.AddDays(-30) });
+        await health.PollHealthAsync(target, CancellationToken.None);
+        Assert.Equal(HealthLevel.Critical, health.Get(1)!.Builds.Single().Level);
+        Assert.Equal(HealthLevel.Critical, health.Get(1)!.Stacks.Single().Level);
+        Assert.Empty(notifier.Sent);
+    }
+
+    [Fact]
+    public async Task Missing_permission_for_a_new_kind_is_a_note_not_a_failed_poll()
+    {
+        var (_, _, gateway, health, target) = OpsSetup(new Quiet());
+        gateway.CodeBuildError = "AccessDeniedException";
+        gateway.Vpns.Add(new VpnConnectionSnapshot { Id = "vpn-1", State = "available", Tunnels = [new() { OutsideIp = "1.1.1.1", Status = "UP" }, new() { OutsideIp = "2.2.2.2", Status = "DOWN" }] });
+        await health.PollHealthAsync(target, CancellationToken.None);
+        var h = health.Get(1)!;
+        Assert.Null(h.HealthError);
+        Assert.Contains(h.AccessNotes, n => n.StartsWith("CodeBuild:"));
+        Assert.Equal(HealthLevel.Warn, h.Vpns.Single().Level);
+    }
+
+    [Fact]
+    public async Task Failed_stack_is_explained_by_its_first_failed_resource_read_once()
+    {
+        var (_, _, gateway, health, target) = OpsSetup(new Quiet());
+        var t0 = DateTime.UtcNow.AddMinutes(-20);
+        gateway.Stacks.Add(new StackSnapshot { Name = "web", Id = "arn:stack/web", Status = "UPDATE_ROLLBACK_COMPLETE", LastUpdated = t0 });
+        gateway.StackEvents.AddRange(new StackEventInfo[]
+        {
+            new(t0.AddMinutes(9), "web", "AWS::CloudFormation::Stack", "UPDATE_ROLLBACK_COMPLETE", null, null),
+            new(t0.AddMinutes(3), "Queue", "AWS::SQS::Queue", "UPDATE_FAILED", "Resource update cancelled", null),
+            new(t0.AddMinutes(2), "Bucket", "AWS::S3::Bucket", "UPDATE_FAILED", "Bucket name already exists", null),
+            new(t0, "web", "AWS::CloudFormation::Stack", "UPDATE_IN_PROGRESS", "User Initiated", null),
+        });
+        await health.PollHealthAsync(target, CancellationToken.None);
+        var web = health.Get(1)!.Stacks.Single();
+        Assert.Equal(HealthLevel.Warn, web.Level);
+        Assert.Contains("Bucket UPDATE_FAILED: Bucket name already exists", web.ReasonText);
+
+        await health.PollHealthAsync(target, CancellationToken.None);
+        Assert.Single(gateway.Calls, c => c.StartsWith("cfn-events:"));
+    }
+
+    [Fact]
+    public void Stack_operations_group_events_and_vpn_tunnels_decide_the_level()
+    {
+        var t0 = new DateTime(2026, 9, 30, 10, 0, 0, DateTimeKind.Utc);
+        var ops = StackRules.Operations("s", [
+            new(t0.AddMinutes(30), "s", "AWS::CloudFormation::Stack", "UPDATE_COMPLETE", null, null),
+            new(t0.AddMinutes(20), "s", "AWS::CloudFormation::Stack", "UPDATE_IN_PROGRESS", null, null),
+            new(t0.AddMinutes(10), "s", "AWS::CloudFormation::Stack", "CREATE_COMPLETE", null, null),
+            new(t0.AddMinutes(5), "Db", "AWS::RDS::DBInstance", "CREATE_COMPLETE", null, null),
+            new(t0, "s", "AWS::CloudFormation::Stack", "CREATE_IN_PROGRESS", null, null),
+        ]);
+        Assert.Equal(["Update", "Create"], ops.Select(o => o.Kind));
+        Assert.Equal("UPDATE_COMPLETE", ops[0].FinalStatus);
+        Assert.Equal(3, ops[1].Events.Count);
+
+        Assert.Equal(HealthLevel.Critical, StackRules.StatusLevel("ROLLBACK_COMPLETE"));
+        Assert.Equal(HealthLevel.Critical, StackRules.StatusLevel("DELETE_FAILED"));
+        Assert.Equal(HealthLevel.Warn, StackRules.StatusLevel("UPDATE_ROLLBACK_COMPLETE"));
+        Assert.Equal(HealthLevel.Unknown, StackRules.StatusLevel("UPDATE_IN_PROGRESS"));
+        Assert.Equal(HealthLevel.Ok, StackRules.StatusLevel("UPDATE_COMPLETE"));
+
+        VpnConnectionSnapshot Vpn(params string[] states) => new()
+        {
+            Id = "vpn-1", State = "available", Tunnels = states.Select((s, i) => new VpnTunnelInfo { OutsideIp = $"10.0.0.{i}", Status = s }).ToList(),
+        };
+        Assert.Equal(HealthLevel.Ok, HealthRules.EvaluateVpn(Vpn("UP", "UP")).Level);
+        Assert.Equal(HealthLevel.Warn, HealthRules.EvaluateVpn(Vpn("UP", "DOWN")).Level);
+        Assert.Equal(HealthLevel.Critical, HealthRules.EvaluateVpn(Vpn("DOWN", "DOWN")).Level);
+        Assert.Equal(HealthLevel.Ok, HealthRules.EvaluateVpn(Vpn("UP", "DOWN"), c => c.Contains("10.0.0.1")).Level);
+
+        Assert.Equal(HealthLevel.Critical, HealthRules.EvaluateRedshift(new RedshiftSnapshot { Id = "dw", Status = "storage-full" }).Level);
+        Assert.Equal(HealthLevel.Ok, HealthRules.EvaluateRedshift(new RedshiftSnapshot { Id = "dw", Status = "paused", AvailabilityStatus = "Unavailable" }).Level);
+        Assert.Equal(HealthLevel.Unknown, HealthRules.EvaluateRedshift(new RedshiftSnapshot { Id = "dw", Status = "resizing" }).Level);
     }
 
     private sealed class MemoryCostStore : ICostStore, INetworkStore

@@ -86,7 +86,8 @@ public class ReadOnlyGuardTests
     [Fact]
     public void Allowlist_contains_only_read_verbs()
     {
-        string[] readVerbs = ["List", "Describe", "Get", "Filter", "Retrieve"];
+        // BatchGet reads several items by id (CodeBuild builds).
+        string[] readVerbs = ["List", "Describe", "Get", "Filter", "Retrieve", "BatchGet"];
         foreach (var type in ReadOnlyGuard.AllowedRequestTypes)
         {
             var op = type.Name[..^"Request".Length];
@@ -102,11 +103,83 @@ public class ReadOnlyGuardTests
     {
         var names = ReadOnlyGuard.ConfirmedOnlyRequestTypes.Select(t => t.Name).OrderBy(n => n).ToList();
         Assert.Equal([
-            "AuthorizeSecurityGroupEgressRequest", "AuthorizeSecurityGroupIngressRequest", "ModifySecurityGroupRulesRequest",
-            "RebootInstancesRequest", "RequestEnvironmentInfoRequest", "RestartAppServerRequest",
+            "AuthorizeSecurityGroupEgressRequest", "AuthorizeSecurityGroupIngressRequest",
+            "CreateNetworkInsightsPathRequest", "CreateSecretRequest",
+            "DeleteNetworkInsightsAnalysisRequest", "DeleteNetworkInsightsPathRequest", "DeleteParameterRequest", "DeleteSecretRequest",
+            "ModifySecurityGroupRulesRequest", "PutParameterRequest", "PutSecretValueRequest",
+            "RebootInstancesRequest", "RequestEnvironmentInfoRequest", "RestartAppServerRequest", "RestoreSecretRequest",
             "RevokeSecurityGroupEgressRequest", "RevokeSecurityGroupIngressRequest",
-            "StartInstancesRequest", "StopInstancesRequest", "TerminateInstancesRequest", "UpdateEnvironmentRequest", "UpdateServiceRequest",
+            "StartInstancesRequest", "StartNetworkInsightsAnalysisRequest", "StopInstancesRequest", "TerminateInstancesRequest",
+            "UpdateEnvironmentRequest", "UpdateServiceRequest",
         ], names);
+    }
+
+    [Fact]
+    public void Secret_parameter_and_reachability_writes_are_limited_to_their_narrow_shape()
+    {
+        string? Problem(AmazonWebServiceRequest r) => ReadOnlyGuard.ConfirmedRequestProblem(r);
+        Assert.Null(Problem(new Secrets.PutSecretValueRequest { SecretId = "s", SecretString = "v" }));
+        Assert.NotNull(Problem(new Secrets.PutSecretValueRequest { SecretId = "s", SecretString = "v", VersionStages = ["AWSPENDING"] }));
+        Assert.NotNull(Problem(new Secrets.PutSecretValueRequest { SecretId = "s" }));
+        Assert.Null(Problem(new Secrets.CreateSecretRequest { Name = "n", SecretString = "v", Description = "d", KmsKeyId = "alias/k" }));
+        Assert.NotNull(Problem(new Secrets.CreateSecretRequest { Name = "n", SecretString = "v", Tags = [new Secrets.Tag { Key = "k", Value = "v" }] }));
+        Assert.NotNull(Problem(new Secrets.CreateSecretRequest { Name = "n", SecretString = "v", AddReplicaRegions = [new Secrets.ReplicaRegionType { Region = "eu-west-1" }] }));
+        Assert.Null(Problem(new Secrets.DeleteSecretRequest { SecretId = "s", RecoveryWindowInDays = 30 }));
+        Assert.NotNull(Problem(new Secrets.DeleteSecretRequest { SecretId = "s", ForceDeleteWithoutRecovery = true }));
+        Assert.NotNull(Problem(new Secrets.DeleteSecretRequest { SecretId = "s", RecoveryWindowInDays = 3 }));
+        Assert.NotNull(Problem(new Secrets.DeleteSecretRequest { SecretId = "s" }));
+        Assert.Null(Problem(new Secrets.RestoreSecretRequest { SecretId = "s" }));
+
+        Assert.Null(Problem(new Ssm.PutParameterRequest { Name = "/a", Value = "v", Overwrite = true, Type = "SecureString", KeyId = "alias/k", Tier = "Advanced" }));
+        Assert.NotNull(Problem(new Ssm.PutParameterRequest { Name = "/a", Value = "v", Tags = [new Ssm.Tag { Key = "k", Value = "v" }] }));
+        Assert.NotNull(Problem(new Ssm.PutParameterRequest { Name = "/a", Value = "v", Policies = "[]" }));
+        Assert.NotNull(Problem(new Ssm.PutParameterRequest { Name = "/a", Value = "v", AllowedPattern = ".*" }));
+        Assert.Null(Problem(new Ssm.DeleteParameterRequest { Name = "/a" }));
+
+        Assert.Null(Problem(new Amazon.EC2.Model.CreateNetworkInsightsPathRequest { Source = "eni-1", Destination = "eni-2", Protocol = "tcp", DestinationPort = 5432 }));
+        Assert.NotNull(Problem(new Amazon.EC2.Model.CreateNetworkInsightsPathRequest
+        {
+            Source = "eni-1", Destination = "eni-2", Protocol = "tcp",
+            TagSpecifications = [new Amazon.EC2.Model.TagSpecification { ResourceType = "network-insights-path" }],
+        }));
+        Assert.Null(Problem(new Amazon.EC2.Model.StartNetworkInsightsAnalysisRequest { NetworkInsightsPathId = "nip-1" }));
+        Assert.NotNull(Problem(new Amazon.EC2.Model.StartNetworkInsightsAnalysisRequest { NetworkInsightsPathId = "nip-1", AdditionalAccounts = ["111122223333"] }));
+        Assert.Null(Problem(new Amazon.EC2.Model.DeleteNetworkInsightsPathRequest { NetworkInsightsPathId = "nip-1" }));
+        Assert.Null(Problem(new Amazon.EC2.Model.DeleteNetworkInsightsAnalysisRequest { NetworkInsightsAnalysisId = "nia-1" }));
+    }
+
+    [Fact]
+    public async Task Approved_secret_and_parameter_writes_are_sent_and_logged_without_the_value()
+    {
+        SharedPipeline.EnsureInstalled();
+        var name = "/app/" + Guid.NewGuid().ToString("N");
+        using var endpoint = new FakeAwsEndpoint("""{"Version":4,"Tier":"Standard"}""");
+        using var ssm = new AmazonSimpleSystemsManagementClient(Creds, Config(new AmazonSimpleSystemsManagementConfig(), endpoint.Url));
+        using var sm = new AmazonSecretsManagerClient(Creds, Config(new AmazonSecretsManagerConfig(), endpoint.Url));
+
+        using (RequestScope.Begin(new RequestScopeInfo("p", null, "us-east-1", Elevated: true, Approved: true)))
+        using (RequestScope.Redact("NEW-TOPSECRET-VALUE"))
+        {
+            await ssm.PutParameterAsync(new Ssm.PutParameterRequest { Name = name, Value = "NEW-TOPSECRET-VALUE", Overwrite = true });
+            await Record.ExceptionAsync(() => sm.PutSecretValueAsync(new Secrets.PutSecretValueRequest { SecretId = name, SecretString = "NEW-TOPSECRET-VALUE" }));
+        }
+        Assert.Equal(2, endpoint.Requests);
+        var entries = SharedPipeline.Sink.Entries.Where(e => e.Parameters.Contains(name)).ToList();
+        Assert.Equal(2, entries.Count);
+        Assert.All(entries, e => AssertNoSensitiveData(e, "NEW-TOPSECRET-VALUE"));
+        Assert.Contains(entries, e => e.Operation == "PutParameter" && e.Parameters.Contains("Overwrite=True"));
+
+        // Without approval: blocked, nothing sent.
+        await Assert.ThrowsAsync<WriteOperationBlockedException>(() => sm.DeleteSecretAsync(new Secrets.DeleteSecretRequest { SecretId = name, RecoveryWindowInDays = 7 }));
+        Assert.Equal(2, endpoint.Requests);
+    }
+
+    [Fact]
+    public void Redaction_scrubs_a_value_from_logged_messages()
+    {
+        using (RequestScope.Redact("hunter2-long"))
+            Assert.Equal("value (value) is invalid", RequestScope.Scrub("value hunter2-long is invalid"));
+        Assert.Equal("value hunter2-long is invalid", RequestScope.Scrub("value hunter2-long is invalid"));
     }
 
     [Fact]
@@ -366,7 +439,12 @@ public class ReadOnlyGuardTests
         Assert.Contains("NextToken=yes", text);
         Assert.DoesNotContain("opaque-token-value", text);
 
-        Assert.Equal("", RequestParameterRedactor.Describe(new Ssm.PutParameterRequest { Name = "n", Value = "should-not-log" }));
+        var put = RequestParameterRedactor.Describe(new Ssm.PutParameterRequest { Name = "n", Value = "should-not-log", Description = "desc-not-logged", Overwrite = true });
+        Assert.Contains("Name=n", put);
+        Assert.DoesNotContain("should-not-log", put);
+        Assert.DoesNotContain("desc-not-logged", put);
+        Assert.DoesNotContain("should-not-log", RequestParameterRedactor.Describe(new Secrets.PutSecretValueRequest { SecretId = "s", SecretString = "should-not-log" }));
+        Assert.DoesNotContain("should-not-log", RequestParameterRedactor.Describe(new Secrets.CreateSecretRequest { Name = "s", SecretString = "should-not-log" }));
     }
 
     [Fact]
@@ -388,6 +466,10 @@ public class ReadOnlyGuardTests
             typeof(Amazon.ElasticLoadBalancingV2.AmazonElasticLoadBalancingV2Client).Assembly,
             typeof(Amazon.Pricing.AmazonPricingClient).Assembly,
             typeof(Amazon.CostExplorer.AmazonCostExplorerClient).Assembly,
+            typeof(Amazon.CodeBuild.AmazonCodeBuildClient).Assembly,
+            typeof(Amazon.CloudFormation.AmazonCloudFormationClient).Assembly,
+            typeof(Amazon.Redshift.AmazonRedshiftClient).Assembly,
+            typeof(Amazon.RedshiftServerless.AmazonRedshiftServerlessClient).Assembly,
         };
 
         var forbidden = sdkAssemblies
@@ -419,6 +501,20 @@ public class ReadOnlyGuardTests
         Assert.Contains("Amazon.RDS.Model.ModifyDBInstanceRequest", forbidden);
         Assert.Contains("Amazon.ElastiCache.Model.ModifyReplicationGroupRequest", forbidden);
         Assert.Contains("Amazon.ElastiCache.Model.RebootCacheClusterRequest", forbidden);
+        // CodeBuild, CloudFormation, Redshift and VPNs are watched, never changed.
+        Assert.Contains("Amazon.CodeBuild.Model.StartBuildRequest", forbidden);
+        Assert.Contains("Amazon.CodeBuild.Model.RetryBuildRequest", forbidden);
+        Assert.Contains("Amazon.CodeBuild.Model.DeleteProjectRequest", forbidden);
+        Assert.Contains("Amazon.CodeBuild.Model.BatchDeleteBuildsRequest", forbidden);
+        Assert.Contains("Amazon.CloudFormation.Model.UpdateStackRequest", forbidden);
+        Assert.Contains("Amazon.CloudFormation.Model.DeleteStackRequest", forbidden);
+        Assert.Contains("Amazon.CloudFormation.Model.CreateStackRequest", forbidden);
+        Assert.Contains("Amazon.CloudFormation.Model.DetectStackDriftRequest", forbidden);
+        Assert.Contains("Amazon.Redshift.Model.PauseClusterRequest", forbidden);
+        Assert.Contains("Amazon.Redshift.Model.RebootClusterRequest", forbidden);
+        Assert.Contains("Amazon.RedshiftServerless.Model.UpdateWorkgroupRequest", forbidden);
+        Assert.Contains("Amazon.EC2.Model.DeleteVpnConnectionRequest", forbidden);
+        Assert.Contains("Amazon.EC2.Model.ModifyVpnTunnelOptionsRequest", forbidden);
 
         foreach (var assembly in new[]
                  {

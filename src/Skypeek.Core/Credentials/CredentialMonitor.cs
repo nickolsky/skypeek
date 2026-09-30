@@ -30,6 +30,11 @@ public sealed class CredentialMonitor : IDisposable
 {
     private static readonly TimeSpan DebounceDelay = TimeSpan.FromMilliseconds(500);
     private static readonly TimeSpan PollInterval = TimeSpan.FromMinutes(1);
+    /// <summary>Renew a renewable SSO sign-in this long before its token runs out (the CLI renews within 15 minutes).</summary>
+    public static readonly TimeSpan RenewBefore = TimeSpan.FromMinutes(10);
+    /// <summary>At most one renewal attempt per sign-in this often.</summary>
+    public static readonly TimeSpan RenewRetry = TimeSpan.FromMinutes(3);
+    public static readonly TimeSpan RenewAfterExpiryRetry = TimeSpan.FromMinutes(30);
 
     private readonly string _path;
     private readonly string? _configPath;
@@ -41,6 +46,12 @@ public sealed class CredentialMonitor : IDisposable
     private readonly Dictionary<string, CredentialHalt> _halts = new(StringComparer.Ordinal);
     private readonly Dictionary<string, DateTime> _lastSuccess = new(StringComparer.Ordinal);
     private readonly HashSet<string> _validating = new(StringComparer.Ordinal);
+    /// <summary>SSO profiles by whether they were signed in at the last reload (sign-in ended / restored events).</summary>
+    private readonly Dictionary<string, bool> _signedIn = new(StringComparer.Ordinal);
+    /// <summary>Last renewal attempt per token cache file (one sign-in can serve many profiles).</summary>
+    private readonly Dictionary<string, DateTime> _renewAttempts = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _renewing = new(StringComparer.OrdinalIgnoreCase);
+    private Timer? _expiry;
 
     private IReadOnlyDictionary<string, ProfileCredentials> _profiles = new Dictionary<string, ProfileCredentials>();
     private readonly List<FileSystemWatcher> _watchers = [];
@@ -63,6 +74,19 @@ public sealed class CredentialMonitor : IDisposable
     public event Action<ProfileStatus>? ProfileHalted;
     public event Action<string>? ProfileRecovered;
     public event Action? StatusChanged;
+    /// <summary>SSO profiles whose sign-in ended (token expired and could not be renewed, or signed out).</summary>
+    public event Action<IReadOnlyList<string>>? SignInEnded;
+    /// <summary>SSO profiles signed in again (after <see cref="SignInEnded"/>).</summary>
+    public event Action<IReadOnlyList<string>>? SignInRestored;
+
+    /// <summary>
+    /// Renews a renewable SSO sign-in (profile name → task that finishes once the CLI is done); null or a false
+    /// <see cref="RenewEnabled"/> turns renewal off. The monitor re-reads the token cache afterwards.
+    /// </summary>
+    public Func<string, SsoProfile, Task>? Renewer { get; set; }
+    public Func<bool> RenewEnabled { get; set; } = () => true;
+    /// <summary>For tests.</summary>
+    public Func<DateTime> Clock { get; set; } = () => DateTime.UtcNow;
 
     public string CredentialsPath => _path;
     public string? ConfigPath => _configPath;
@@ -90,6 +114,8 @@ public sealed class CredentialMonitor : IDisposable
             if (_ssoCacheDirectory is not null)
                 Watch(_ssoCacheDirectory, "*.json");
             _debounce = new Timer(_ => _ = ReloadAsync(), null, Timeout.Infinite, Timeout.Infinite);
+            // Sign-ins end at a known time: re-check then (and shortly before, to renew) instead of waiting for the poll.
+            _expiry = new Timer(_ => _ = ReloadAsync(), null, Timeout.Infinite, Timeout.Infinite);
             // Fallback in case the watcher misses an event (network drives, atomic replace by some tools).
             _poll = new Timer(_ => _ = ReloadAsync(), null, PollInterval, PollInterval);
         }
@@ -128,16 +154,88 @@ public sealed class CredentialMonitor : IDisposable
         }
 
         var toValidate = new List<string>();
+        var ended = new List<string>();
+        var restored = new List<string>();
+        var toRenew = new List<(string Profile, SsoProfile Sso)>();
+        var now = Clock();
+        DateTime? nextCheck = null;
         lock (_gate)
         {
             _profiles = profiles;
             foreach (var halt in _halts.Values)
                 if (profiles.TryGetValue(halt.Profile, out var creds) && creds.Fingerprint != halt.Fingerprint)
                     toValidate.Add(halt.Profile);
+
+            var renewing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (name, creds) in profiles)
+            {
+                if (creds.Sso is not { } sso)
+                {
+                    _signedIn.Remove(name);
+                    continue;
+                }
+                var signedIn = sso.IsSignedIn(now);
+                // Renew shortly before the end, and keep trying (throttled) after it while the CLI could still renew.
+                var dueForRenewal = sso.CanRenew && sso.TokenExpiresUtc is { } expires && expires - now < RenewBefore;
+                var mayRenew = dueForRenewal && Renewer is not null && RenewEnabled()
+                    && (!_renewAttempts.TryGetValue(sso.TokenCacheFile, out var last)
+                        // Every few minutes before the end; once it has passed, now and then (e.g. after the PC slept).
+                        || now - last >= (sso.TokenExpiresUtc > now ? RenewRetry : RenewAfterExpiryRetry));
+                if (mayRenew && !_renewing.Contains(sso.TokenCacheFile) && renewing.Add(sso.TokenCacheFile))
+                    toRenew.Add((name, sso));
+
+                var was = _signedIn.TryGetValue(name, out var previous) ? previous : (bool?)null;
+                if (!signedIn && (mayRenew || _renewing.Contains(sso.TokenCacheFile)))
+                    continue; // decided after the renewal attempt
+                _signedIn[name] = signedIn;
+                if (was != false && !signedIn)
+                    ended.Add(name);
+                else if (was == false && signedIn)
+                    restored.Add(name);
+
+                if (sso.TokenExpiresUtc is { } end && signedIn)
+                {
+                    var check = sso.CanRenew && end - RenewBefore > now ? end - RenewBefore : end.AddMinutes(-1);
+                    if (check > now && (nextCheck is null || check < nextCheck))
+                        nextCheck = check;
+                }
+            }
+            foreach (var file in renewing)
+            {
+                _renewAttempts[file] = now;
+                _renewing.Add(file);
+            }
         }
+        if (nextCheck is { } at)
+            _expiry?.Change(at - now + TimeSpan.FromSeconds(2), Timeout.InfiniteTimeSpan);
+        else if (toRenew.Count == 0)
+            _expiry?.Change(Timeout.Infinite, Timeout.Infinite);
 
         StatusChanged?.Invoke();
-        return Task.WhenAll(toValidate.Select(ValidateAsync));
+        if (ended.Count > 0)
+            SignInEnded?.Invoke(ended);
+        if (restored.Count > 0)
+            SignInRestored?.Invoke(restored);
+        return Task.WhenAll(toValidate.Select(ValidateAsync).Concat(toRenew.Select(r => RenewAsync(r.Profile, r.Sso))));
+    }
+
+    private async Task RenewAsync(string profile, SsoProfile sso)
+    {
+        try
+        {
+            await Renewer!(profile, sso).ConfigureAwait(false);
+        }
+        catch
+        {
+            // The CLI missing or failing is the same as a sign-in that cannot be renewed: the user signs in again.
+        }
+        finally
+        {
+            lock (_gate)
+                _renewing.Remove(sso.TokenCacheFile);
+        }
+        // Either the CLI wrote a fresh token, or the sign-in has really ended (reported now, as the attempt is recent).
+        await ReloadAsync().ConfigureAwait(false);
     }
 
     /// <summary>Returns the current credentials or throws when the profile is missing or halted.</summary>
@@ -272,5 +370,6 @@ public sealed class CredentialMonitor : IDisposable
             watcher.Dispose();
         _debounce?.Dispose();
         _poll?.Dispose();
+        _expiry?.Dispose();
     }
 }

@@ -10,9 +10,9 @@
 
         <Border DockPanel.Dock="Bottom" Background="#FF202020" BorderBrush="#FF3D3D3D" BorderThickness="0,1,0,0" Padding="20,14">
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                <Button x:Name="ClearButton" Content="Remove override" Margin="0,0,8,0" Click="OnClear" />
+                <views:IconButton x:Name="ClearButton" Content="Remove override" Symbol="Delete" Margin="0,0,8,0" Click="OnClear" />
                 <Button Content="Cancel" Margin="0,0,8,0" MinWidth="80" IsCancel="True" Click="OnCancel" />
-                <Button Classes="accent" Content="Save" MinWidth="80" IsDefault="True" Click="OnSave" />
+                <views:IconButton Classes="accent" Content="Save" Symbol="Save" IsDefault="True" Click="OnSave" />
             </StackPanel>
         </Border>
 

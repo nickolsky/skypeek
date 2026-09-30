@@ -50,6 +50,30 @@ public sealed record RequestScopeInfo(string Profile, string? AccountId, string 
 public static class RequestScope
 {
     private static readonly AsyncLocal<RequestScopeInfo?> CurrentScope = new();
+    private static readonly AsyncLocal<string[]?> RedactedValues = new();
+
+    /// <summary>A secret value being written: removed from anything logged for calls in this async flow.</summary>
+    public static IDisposable Redact(string value)
+    {
+        var previous = RedactedValues.Value;
+        RedactedValues.Value = [.. previous ?? [], value];
+        return new RestoreRedaction(previous);
+    }
+
+    /// <summary>The text without any value registered with <see cref="Redact"/>.</summary>
+    public static string? Scrub(string? text)
+    {
+        if (text is null || RedactedValues.Value is not { Length: > 0 } values)
+            return text;
+        foreach (var value in values.Where(v => v.Length >= 4))
+            text = text.Replace(value, "(value)", StringComparison.Ordinal);
+        return text;
+    }
+
+    private sealed class RestoreRedaction(string[]? previous) : IDisposable
+    {
+        public void Dispose() => RedactedValues.Value = previous;
+    }
 
     public static RequestScopeInfo? Current => CurrentScope.Value;
 

@@ -1,0 +1,95 @@
+<views:DialogWindow xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:views="using:Skypeek.Desktop.Views"
+                    xmlns:models="using:Skypeek.Core.Models"
+                    x:Class="Skypeek.Desktop.Views.ReachDialog"
+                    Title="Skypeek — analyze reach" Width="820" Height="700" MinWidth="620" MinHeight="460"
+                    WindowStartupLocation="CenterOwner" Background="#FF2B2B2B">
+    <DockPanel>
+        <Border DockPanel.Dock="Bottom" Background="#FF202020" BorderBrush="#FF3D3D3D" BorderThickness="0,1,0,0" Padding="20,12">
+            <DockPanel>
+                <views:IconButton DockPanel.Dock="Right" Content="Close" Symbol="Dismiss" IsCancel="True" Click="OnClose" />
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                    <views:IconButton x:Name="VerifyButton" Content="Verify with AWS Reachability Analyzer ($0.10)" Symbol="ShieldCheckmark" Click="OnVerify" IsEnabled="False" />
+                    <TextBlock x:Name="VerifyNote" Classes="caption" VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="380" />
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <StackPanel DockPanel.Dock="Top" Margin="20,16,20,8">
+            <TextBlock FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource TextStrong}" Text="Can one thing reach another?" />
+            <TextBlock Classes="caption" TextWrapping="Wrap" Margin="0,4,0,10"
+                       Text="Checked instantly from the downloaded network data: security groups on both ends, network ACLs both ways and the routes in between. Pick a resource or interface, or type an IP address or a host name." />
+            <Grid ColumnDefinitions="60,*" RowDefinitions="Auto,Auto,Auto,Auto">
+                <TextBlock Text="From" VerticalAlignment="Center" />
+                <views:EndpointPicker x:Name="From" Grid.Column="1" Margin="0,0,0,6" />
+                <TextBlock Grid.Row="1" Text="To" VerticalAlignment="Center" />
+                <views:EndpointPicker x:Name="To" Grid.Row="1" Grid.Column="1" Margin="0,0,0,6" />
+                <TextBlock Grid.Row="2" Text="Port" VerticalAlignment="Center" />
+                <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Spacing="6" Margin="0,0,0,6">
+                    <ComboBox x:Name="Protocol" Width="130" SelectedIndex="0" HorizontalAlignment="Left">
+                        <ComboBoxItem Content="TCP" Tag="tcp" />
+                        <ComboBoxItem Content="UDP" Tag="udp" />
+                        <ComboBoxItem Content="ICMP (ping)" Tag="icmp" />
+                        <ComboBoxItem Content="All traffic" Tag="-1" />
+                    </ComboBox>
+                    <TextBox x:Name="Port" Width="80" Text="443" />
+                    <views:IconButton Classes="accent" Content="Check" Symbol="Play" Click="OnCheck" IsDefault="True" />
+                </StackPanel>
+                <ItemsControl x:Name="Presets" Grid.Row="3" Grid.Column="1">
+                    <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Button Content="{Binding Key}" Tag="{Binding Value}" Padding="6,1" Margin="0,0,4,4" Click="OnPreset" />
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </Grid>
+        </StackPanel>
+
+        <ScrollViewer Margin="20,0,20,10" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <Border x:Name="VerdictPanel" Classes="panel" IsVisible="False" Margin="0,0,0,8">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse x:Name="VerdictDot" Classes="dot" Width="12" Height="12" Margin="0,0,8,0" />
+                            <TextBlock x:Name="VerdictTitle" FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource TextStrong}" />
+                        </StackPanel>
+                        <TextBlock x:Name="VerdictText" Classes="body" TextWrapping="Wrap" Margin="20,4,0,0" />
+                        <TextBlock x:Name="RequestText" Classes="caption" TextWrapping="Wrap" Margin="20,4,0,0" />
+                    </StackPanel>
+                </Border>
+                <ItemsControl x:Name="HopList">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="models:ReachHop">
+                            <Border Classes="panel" Padding="10,6" Margin="0,0,0,4">
+                                <DockPanel>
+                                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top">
+                                        <Button Content="Open group" Padding="6,1" Margin="6,0,0,0" Click="OnOpenGroup" Tag="{Binding}"
+                                                IsVisible="{Binding GroupId, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                        <Button Content="Open subnet" Padding="6,1" Margin="6,0,0,0" Click="OnOpenSubnet" Tag="{Binding}"
+                                                IsVisible="{Binding SubnetId, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                    </StackPanel>
+                                    <Ellipse DockPanel.Dock="Left" Classes="dot" Fill="{Binding Level, Converter={StaticResource LevelToBrush}}" Margin="0,4,10,0" VerticalAlignment="Top" />
+                                    <StackPanel>
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Classes="body" Text="{Binding Step}" FontWeight="SemiBold" />
+                                            <TextBlock Classes="caption" Text="{Binding ResultText}" Margin="8,0,0,0" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                        <TextBlock Classes="body" Text="{Binding Detail}" TextWrapping="Wrap" Margin="0,2,0,0" />
+                                    </StackPanel>
+                                </DockPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <Border x:Name="AwsPanel" Classes="panel" IsVisible="False" Margin="0,6,0,0">
+                    <StackPanel>
+                        <TextBlock x:Name="AwsTitle" Classes="body" FontWeight="SemiBold" TextWrapping="Wrap" />
+                        <TextBlock x:Name="AwsText" Classes="caption" TextWrapping="Wrap" Margin="0,4,0,0" FontFamily="{StaticResource MonoFont}" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</views:DialogWindow>

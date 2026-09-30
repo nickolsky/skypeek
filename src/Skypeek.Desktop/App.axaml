@@ -90,6 +90,9 @@
         <!-- Buttons: padding like WPF-UI; danger (red) and caution (amber) for actions that change AWS. -->
         <Style Selector="Button">
             <Setter Property="Padding" Value="11,5,11,6" />
+            <!-- Fluent left-aligns button content, which looks off on buttons with a minimum width. -->
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
         </Style>
         <Style Selector="Button.danger">
             <Setter Property="Background" Value="#FFC42B1C" />

@@ -2,6 +2,8 @@ using System.Collections.Concurrent;
 using Amazon;
 using Amazon.CloudWatch;
 using Amazon.CloudWatchLogs;
+using Amazon.CloudFormation;
+using Amazon.CodeBuild;
 using Amazon.EC2;
 using Amazon.ECS;
 using Amazon.ElastiCache;
@@ -10,6 +12,8 @@ using Amazon.ElasticLoadBalancingV2;
 using Amazon.CostExplorer;
 using Amazon.Pricing;
 using Amazon.RDS;
+using Amazon.Redshift;
+using Amazon.RedshiftServerless;
 using Amazon.Runtime;
 using Amazon.SecretsManager;
 using Amazon.SecurityToken;
@@ -36,6 +40,10 @@ public sealed class AwsClientSet : IDisposable
     private readonly Lazy<AmazonElasticLoadBalancingV2Client> _elb;
     private readonly Lazy<AmazonPricingClient> _pricing;
     private readonly Lazy<AmazonCostExplorerClient> _costExplorer;
+    private readonly Lazy<AmazonCodeBuildClient> _codeBuild;
+    private readonly Lazy<AmazonCloudFormationClient> _cloudFormation;
+    private readonly Lazy<AmazonRedshiftClient> _redshift;
+    private readonly Lazy<AmazonRedshiftServerlessClient> _redshiftServerless;
 
     public AwsClientSet(ProfileCredentials creds, string region)
     {
@@ -56,6 +64,10 @@ public sealed class AwsClientSet : IDisposable
         _rds = new(() => new AmazonRDSClient(_credentials, Configure(new AmazonRDSConfig())));
         _elastiCache = new(() => new AmazonElastiCacheClient(_credentials, Configure(new AmazonElastiCacheConfig())));
         _elb = new(() => new AmazonElasticLoadBalancingV2Client(_credentials, Configure(new AmazonElasticLoadBalancingV2Config())));
+        _codeBuild = new(() => new AmazonCodeBuildClient(_credentials, Configure(new AmazonCodeBuildConfig())));
+        _cloudFormation = new(() => new AmazonCloudFormationClient(_credentials, Configure(new AmazonCloudFormationConfig())));
+        _redshift = new(() => new AmazonRedshiftClient(_credentials, Configure(new AmazonRedshiftConfig())));
+        _redshiftServerless = new(() => new AmazonRedshiftServerlessClient(_credentials, Configure(new AmazonRedshiftServerlessConfig())));
         // Price List and Cost Explorer are global services answered from us-east-1, whatever the target's region.
         _pricing = new(() => new AmazonPricingClient(_credentials, Configure(new AmazonPricingConfig(), RegionEndpoint.USEast1)));
         _costExplorer = new(() => new AmazonCostExplorerClient(_credentials, Configure(new AmazonCostExplorerConfig(), RegionEndpoint.USEast1)));
@@ -75,6 +87,10 @@ public sealed class AwsClientSet : IDisposable
     public AmazonElasticLoadBalancingV2Client Elb => _elb.Value;
     public AmazonPricingClient Pricing => _pricing.Value;
     public AmazonCostExplorerClient CostExplorer => _costExplorer.Value;
+    public AmazonCodeBuildClient CodeBuild => _codeBuild.Value;
+    public AmazonCloudFormationClient CloudFormation => _cloudFormation.Value;
+    public AmazonRedshiftClient Redshift => _redshift.Value;
+    public AmazonRedshiftServerlessClient RedshiftServerless => _redshiftServerless.Value;
 
     private T Configure<T>(T config, RegionEndpoint? region = null) where T : ClientConfig
     {
@@ -101,6 +117,10 @@ public sealed class AwsClientSet : IDisposable
         if (_elb.IsValueCreated) _elb.Value.Dispose();
         if (_pricing.IsValueCreated) _pricing.Value.Dispose();
         if (_costExplorer.IsValueCreated) _costExplorer.Value.Dispose();
+        if (_codeBuild.IsValueCreated) _codeBuild.Value.Dispose();
+        if (_cloudFormation.IsValueCreated) _cloudFormation.Value.Dispose();
+        if (_redshift.IsValueCreated) _redshift.Value.Dispose();
+        if (_redshiftServerless.IsValueCreated) _redshiftServerless.Value.Dispose();
     }
 }
 

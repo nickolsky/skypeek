@@ -23,13 +23,16 @@ public sealed class AppSession : IDisposable
         Settings = new SettingsService(Repository);
         Monitor = new CredentialMonitor(ProfileReader.DefaultPath, Repository, new StsValidator(), Settings.RegionForProfile,
             ProfileReader.DefaultConfigPath, ProfileReader.DefaultSsoCacheDirectory);
+        // Renewable SSO sign-ins are renewed by the AWS CLI shortly before they run out (Settings → General).
+        Monitor.Renewer = Platform.SsoRenewer.For(ProfileReader.DefaultConfigPath);
+        Monitor.RenewEnabled = () => Settings.Settings.RenewSsoWithCli;
         Clients = new AwsClientFactory();
         Gateway = new AwsGateway(Monitor, Clients, log, approver);
         Catalog = new CatalogService(Gateway, Repository, Settings, Monitor);
         Health = new HealthService(Gateway, Repository, Settings, notifier);
         Network = new NetworkService(Gateway, Repository, Settings);
         Costs = new CostService(Gateway, Repository, Settings, Health, Network);
-        Scheduler = new TargetScheduler(Settings, Monitor, Repository, log, ExecuteJob);
+        Scheduler = new TargetScheduler(Settings, Monitor, Repository, log, ExecuteJob, Activity);
 
         Monitor.ProfileHalted += p => notifier.Notify("AWS credentials rejected",
             $"{p.Profile} ({p.ErrorCode}). Refreshes for this profile are paused until the credentials file is updated.");
@@ -51,6 +54,8 @@ public sealed class AppSession : IDisposable
     public NetworkService Network { get; }
     public CostService Costs { get; }
     public TargetScheduler Scheduler { get; }
+    /// <summary>What is being refreshed right now (scheduled jobs and manual refreshes).</summary>
+    public ActivityTracker Activity { get; } = new();
 
     public static async Task<AppSession> StartAsync(Vault vault, RequestLogService log, INotifier notifier, IElevationApprover approver)
     {

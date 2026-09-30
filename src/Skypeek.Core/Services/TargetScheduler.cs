@@ -32,6 +32,7 @@ public sealed class TargetScheduler : IDisposable
     private readonly ISyncRunStore _runStore;
     private readonly IRequestLogSink _log;
     private readonly Func<Target, JobKind, CancellationToken, Task<int>> _executor;
+    private readonly ActivityTracker? _activity;
     private readonly ConcurrentDictionary<(long TargetId, JobKind Kind), JobState> _jobs = new();
     private readonly SemaphoreSlim _concurrency = new(3, 3);
     private readonly CancellationTokenSource _cts = new();
@@ -39,14 +40,23 @@ public sealed class TargetScheduler : IDisposable
     private Timer? _timer;
 
     public TargetScheduler(SettingsService settings, CredentialMonitor monitor, ISyncRunStore runStore, IRequestLogSink log,
-        Func<Target, JobKind, CancellationToken, Task<int>> executor)
+        Func<Target, JobKind, CancellationToken, Task<int>> executor, ActivityTracker? activity = null)
     {
+        _activity = activity;
         _settings = settings;
         _monitor = monitor;
         _runStore = runStore;
         _log = log;
         _executor = executor;
         _monitor.ProfileRecovered += OnProfileRecovered;
+        _monitor.SignInRestored += OnSignInRestored;
+    }
+
+    /// <summary>After signing in again, jobs skipped while signed out run now instead of after their full interval.</summary>
+    private void OnSignInRestored(IReadOnlyList<string> profiles)
+    {
+        foreach (var profile in profiles)
+            OnProfileRecovered(profile);
     }
 
     public event Action<Target, JobKind, JobState>? JobCompleted;
@@ -198,6 +208,7 @@ public sealed class TargetScheduler : IDisposable
 
     private async Task RunJobAsync(Target target, JobKind kind, TimeSpan delay)
     {
+        using var activity = _activity?.Begin(target.Id, target.DisplayName, ActivityTracker.JobText(kind), waiting: true);
         var state = GetState(target.Id, kind);
         var ct = _cts.Token;
         try
@@ -211,6 +222,7 @@ public sealed class TargetScheduler : IDisposable
             state.Running = false;
             return;
         }
+        activity?.Started();
 
         var started = DateTime.UtcNow;
         try
@@ -257,6 +269,7 @@ public sealed class TargetScheduler : IDisposable
     public void Dispose()
     {
         _monitor.ProfileRecovered -= OnProfileRecovered;
+        _monitor.SignInRestored -= OnSignInRestored;
         _cts.Cancel();
         _timer?.Dispose();
     }

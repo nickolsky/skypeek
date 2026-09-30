@@ -90,8 +90,40 @@ public sealed class HealthService
             Caches = previous?.Caches ?? [],
             Ec2 = previous?.Ec2 ?? [],
             LoadBalancers = previous?.LoadBalancers ?? [],
+            Vpns = previous?.Vpns ?? [],
+            Builds = previous?.Builds ?? [],
+            Stacks = previous?.Stacks ?? [],
+            Redshift = previous?.Redshift ?? [],
+            SeenKinds = previous?.SeenKinds ?? [],
         };
         var since = previous?.HealthUpdated?.AddMinutes(-2) ?? now.AddHours(-24);
+        var accessNotes = new List<string>();
+        var firstPolls = new List<IEnumerable<ResourceStatus>>();
+
+        // Newer resource kinds: a missing permission is noted on the dashboard instead of failing the whole poll, so
+        // read-only roles without e.g. codebuild:ListProjects keep working.
+        async Task Poll<T>(bool enabled, string kind, string label, Func<Task<List<T>>> read, Action<List<T>> store) where T : ResourceStatus
+        {
+            if (!enabled)
+            {
+                store([]);
+                return;
+            }
+            try
+            {
+                var items = await read();
+                store(items);
+                if (next.SeenKinds.Add(kind))
+                    firstPolls.Add(items);
+            }
+            catch (Exception ex) when (ex is not CredentialsUnavailableException and not OperationCanceledException)
+            {
+                if (IsAccessProblem(ex))
+                    accessNotes.Add($"{label}: {ex.Message}");
+                else
+                    errors.Add($"{label}: {ex.Message}");
+            }
+        }
 
         if (target.EbEnabled)
         {
@@ -204,9 +236,40 @@ public sealed class HealthService
             next.LoadBalancers = [];
         }
 
+        await Poll(target.VpnEnabled, "vpn", "Site-to-Site VPN", async () =>
+                (await _gateway.GetVpnConnectionsAsync(target, ct))
+                .Select(v => BuildVpn(target, v, previous?.Vpns.FirstOrDefault(p => p.Snapshot.Id == v.Id), now)).ToList(),
+            list => next.Vpns = list);
+        await Poll(target.CodeBuildEnabled, "codebuild", "CodeBuild", async () =>
+            {
+                // "" = looked up, no builds; projects not read yet are left out so they are looked up.
+                var known = (previous?.Builds ?? []).Where(b => !b.Snapshot.NotReadYet)
+                    .ToDictionary(b => b.Snapshot.Name, b => b.Snapshot.LatestBuild?.Id ?? "");
+                return (await _gateway.GetCodeBuildProjectsAsync(target, known, ct))
+                    .Select(p => BuildCodeBuild(target, p, previous?.Builds.FirstOrDefault(b => b.Snapshot.Name == p.Name), now)).ToList();
+            },
+            list => next.Builds = list);
+        await Poll(target.StacksEnabled, "cfn", "CloudFormation", async () =>
+            {
+                var includeEb = _settings.Settings.StacksIncludeEb;
+                var list = new List<StackStatus>();
+                foreach (var stack in (await _gateway.GetStacksAsync(target, ct)).Where(s => includeEb || !s.IsElasticBeanstalk))
+                    list.Add(await BuildStackAsync(target, stack, previous?.Stacks.FirstOrDefault(p => p.Snapshot.Id == stack.Id), now, ct));
+                return list;
+            },
+            list => next.Stacks = list);
+        await Poll(target.RedshiftEnabled, "redshift", "Redshift", async () =>
+                (await _gateway.GetRedshiftAsync(target, ct))
+                .Select(r => BuildRedshift(target, r, previous?.Redshift.FirstOrDefault(p => p.Snapshot.Id == r.Id && p.Snapshot.IsServerless == r.IsServerless), now)).ToList(),
+            list => next.Redshift = list);
+
+        next.AccessNotes = accessNotes;
         next.HealthUpdated = now;
         next.HealthError = errors.Count > 0 ? string.Join("; ", errors) : null;
         RecomputeAll(target, next);
+        // What was already broken when a kind is first polled is shown, not announced one toast each.
+        foreach (var r in firstPolls.SelectMany(items => items))
+            _notified[r.ResourceKey] = new NotifiedState(r.Level, r.Alarms.Where(a => a.CountsAsProblem).Select(a => a.Name).ToHashSet());
         Commit(target, next);
 
         if (errors.Count > 0)
@@ -373,6 +436,50 @@ public sealed class HealthService
                 single.LoadBalancers = [fresh];
                 break;
             }
+            case VpnConnectionStatus vpn:
+            {
+                var prev = health.Vpns.FirstOrDefault(e => e.ResourceKey == vpn.ResourceKey) ?? vpn;
+                var found = await _gateway.GetVpnConnectionsAsync(target, ct, vpn.Snapshot.Id);
+                if (found.FirstOrDefault() is not { } snapshot)
+                    throw new InvalidOperationException($"{vpn.DisplayName} was not found (deleted?).");
+                var fresh = BuildVpn(target, snapshot, prev, now);
+                fresh.Alarms = prev.Alarms;
+                single.Vpns = [fresh];
+                break;
+            }
+            case CodeBuildStatus build:
+            {
+                var prev = health.Builds.FirstOrDefault(e => e.ResourceKey == build.ResourceKey) ?? build;
+                var found = await _gateway.GetCodeBuildProjectsAsync(target, new Dictionary<string, string>(), ct, build.Snapshot.Name);
+                if (found.FirstOrDefault() is not { } snapshot)
+                    throw new InvalidOperationException($"{build.DisplayName} was not found (deleted?).");
+                var fresh = BuildCodeBuild(target, snapshot, prev, now);
+                fresh.Alarms = prev.Alarms;
+                single.Builds = [fresh];
+                break;
+            }
+            case StackStatus stack:
+            {
+                var prev = health.Stacks.FirstOrDefault(e => e.ResourceKey == stack.ResourceKey) ?? stack;
+                var found = await _gateway.GetStacksAsync(target, ct, stack.Snapshot.Id);
+                if (found.FirstOrDefault() is not { } snapshot)
+                    throw new InvalidOperationException($"{stack.DisplayName} was not found (deleted?).");
+                var fresh = await BuildStackAsync(target, snapshot, prev, now, ct);
+                fresh.Alarms = prev.Alarms;
+                single.Stacks = [fresh];
+                break;
+            }
+            case RedshiftStatus redshift:
+            {
+                var prev = health.Redshift.FirstOrDefault(e => e.ResourceKey == redshift.ResourceKey) ?? redshift;
+                var found = await _gateway.GetRedshiftAsync(target, ct, redshift.Snapshot);
+                if (found.FirstOrDefault() is not { } snapshot)
+                    throw new InvalidOperationException($"{redshift.DisplayName} was not found (deleted?).");
+                var fresh = BuildRedshift(target, snapshot, prev, now);
+                fresh.Alarms = prev.Alarms;
+                single.Redshift = [fresh];
+                break;
+            }
             default:
                 return 0;
         }
@@ -397,6 +504,12 @@ public sealed class HealthService
             Caches = Merge(health.Caches, single.Caches),
             Ec2 = Merge(health.Ec2, single.Ec2),
             LoadBalancers = Merge(health.LoadBalancers, single.LoadBalancers),
+            Vpns = Merge(health.Vpns, single.Vpns),
+            Builds = Merge(health.Builds, single.Builds),
+            Stacks = Merge(health.Stacks, single.Stacks),
+            Redshift = Merge(health.Redshift, single.Redshift),
+            AccessNotes = health.AccessNotes,
+            SeenKinds = health.SeenKinds,
             OtherAlarms = health.OtherAlarms,
             HealthUpdated = health.HealthUpdated,
             MetricsUpdated = health.MetricsUpdated,
@@ -551,7 +664,8 @@ public sealed class HealthService
                + h.Rds.Sum(r => RdsMetricNames(r.Snapshot).Count())
                + h.Caches.Sum(c => c.Snapshot.Kind == CacheKind.Serverless ? 2 : c.Snapshot.Nodes.Count() * 5)
                + h.Ec2.Where(e => e.Snapshot.IsRunning && !e.IsHidden).Sum(e => e.Memory is not null ? 2 : 1)
-               + h.LoadBalancers.Where(l => !l.IsHidden).Sum(l => LoadBalancerMetricNames(l.Snapshot).Count());
+               + h.LoadBalancers.Where(l => !l.IsHidden).Sum(l => LoadBalancerMetricNames(l.Snapshot).Count())
+               + h.Redshift.Count(r => !r.IsHidden && !r.Snapshot.IsServerless && !r.Snapshot.IsPaused) * 2;
     }
 
     /// <summary>Re-evaluates stored data with the current thresholds and alarm suppressions (after settings change).</summary>
@@ -593,6 +707,11 @@ public sealed class HealthService
                 var th = HealthRules.ResolveThresholds(settings, target, ec2);
                 if (ec2.Cpu is { } cpu) ec2.Cpu = HealthRules.EvaluateMetric(cpu.MetricName, cpu.Points, th.CpuWarn, th.CpuCritical, settings.SustainedMinutes, now);
                 if (ec2.Memory is { } mem) ec2.Memory = HealthRules.EvaluateMetric(mem.MetricName, mem.Points, th.MemWarn, th.MemCritical, settings.SustainedMinutes, now);
+            }
+            foreach (var r in h.Redshift)
+            {
+                var th = HealthRules.ResolveThresholds(settings, target, r);
+                if (r.Cpu is { } cpu) r.Cpu = HealthRules.EvaluateMetric(cpu.MetricName, cpu.Points, th.CpuWarn, th.CpuCritical, settings.SustainedMinutes, now);
             }
             foreach (var cache in h.Caches)
             {
@@ -761,6 +880,80 @@ public sealed class HealthService
         };
     }
 
+    private static VpnConnectionStatus BuildVpn(Target target, VpnConnectionSnapshot vpn, VpnConnectionStatus? prev, DateTime now)
+    {
+        var (level, reasons) = HealthRules.EvaluateVpn(vpn);
+        return new VpnConnectionStatus
+        {
+            TargetId = target.Id, TargetName = target.DisplayName, Region = target.Region, Snapshot = vpn,
+            BaseLevel = level, BaseReasons = reasons, Alarms = prev?.Alarms ?? [], RefreshedUtc = now,
+        };
+    }
+
+    private static CodeBuildStatus BuildCodeBuild(Target target, CodeBuildProjectSnapshot project, CodeBuildStatus? prev, DateTime now)
+    {
+        // A running build keeps the verdict of the last finished one.
+        if (project.LastCompleted is null && prev?.Snapshot.LastCompleted is { } last && project.LatestBuild?.Id != last.Id)
+            project = new CodeBuildProjectSnapshot { Name = project.Name, Description = project.Description, LatestBuild = project.LatestBuild, LastCompleted = last };
+        var (level, reasons) = HealthRules.EvaluateCodeBuild(project);
+        return new CodeBuildStatus
+        {
+            TargetId = target.Id, TargetName = target.DisplayName, Region = target.Region, Snapshot = project,
+            BaseLevel = level, BaseReasons = reasons, Alarms = prev?.Alarms ?? [], RefreshedUtc = now,
+        };
+    }
+
+    /// <summary>For a failed stack the first failed resource explains it; its events are read once per failure.</summary>
+    private async Task<StackStatus> BuildStackAsync(Target target, StackSnapshot stack, StackStatus? prev, DateTime now, CancellationToken ct)
+    {
+        if (StackRules.StatusLevel(stack.Status) >= HealthLevel.Warn)
+        {
+            if (prev?.Snapshot is { FailedResource: { } known } p && p.FailureInstance == stack.FailureInstance)
+                stack.FailedResource = known;
+            else
+            {
+                try
+                {
+                    var events = await _gateway.GetStackEventsAsync(target, stack.Id, 100, ct);
+                    var failure = StackRules.Operations(stack.Name, events).FirstOrDefault()?.Failures.LastOrDefault();
+                    stack.FailedResource = failure is null ? null : $"{failure.LogicalId} {failure.Status}{(failure.Reason is { Length: > 0 } r ? $": {r}" : "")}";
+                }
+                catch (Exception ex) when (ex is not CredentialsUnavailableException and not OperationCanceledException)
+                {
+                    stack.FailedResource = null;
+                }
+            }
+        }
+        var (level, reasons) = HealthRules.EvaluateStack(stack);
+        return new StackStatus
+        {
+            TargetId = target.Id, TargetName = target.DisplayName, Region = target.Region, Snapshot = stack,
+            BaseLevel = level, BaseReasons = reasons, Alarms = prev?.Alarms ?? [], RefreshedUtc = now,
+        };
+    }
+
+    private static RedshiftStatus BuildRedshift(Target target, RedshiftSnapshot r, RedshiftStatus? prev, DateTime now)
+    {
+        var (level, reasons) = HealthRules.EvaluateRedshift(r);
+        return new RedshiftStatus
+        {
+            TargetId = target.Id, TargetName = target.DisplayName, Region = target.Region, Snapshot = r,
+            BaseLevel = level, BaseReasons = reasons,
+            Cpu = r.IsPaused ? null : prev?.Cpu,
+            DiskUsedPercent = prev?.DiskUsedPercent,
+            Alarms = prev?.Alarms ?? [], RefreshedUtc = now,
+        };
+    }
+
+    /// <summary>Missing permissions or a service not enabled in the account (the SDK's error code, read without referencing the SDK).</summary>
+    private static bool IsAccessProblem(Exception ex)
+    {
+        var code = ex.GetType().GetProperty("ErrorCode")?.GetValue(ex) as string ?? "";
+        return code.Contains("AccessDenied", StringComparison.OrdinalIgnoreCase)
+               || code is "UnauthorizedOperation" or "AuthorizationError" or "OptInRequired" or "SubscriptionRequiredException"
+               || ex.Message.Contains("not authorized to perform", StringComparison.OrdinalIgnoreCase);
+    }
+
     private async Task<EcsServiceStatus> BuildEcsAsync(Target target, EcsServiceSnapshot svc, EcsServiceStatus? prev, DateTime now, CancellationToken ct)
     {
         var (level, reasons) = HealthRules.EvaluateEcs(svc, now);
@@ -800,6 +993,7 @@ public sealed class HealthService
         CacheCpu, CacheMemory, CacheConnections, CacheEvictions, CacheHitRate, CacheReplicationLag,
         InstanceCpu, InstanceMemory,
         LbRequests, LbElb5xx, LbTarget5xx, LbActiveFlows,
+        RedshiftCpu, RedshiftDisk,
     }
 
     /// <summary>Traffic metrics per load balancer type (counts over the last hour, not thresholded).</summary>
@@ -898,6 +1092,13 @@ public sealed class HealthService
                 Add(lb.Snapshot.Namespace, metric, dims, new Binding(lb, slot, null), stat);
         }
 
+        foreach (var r in health.Redshift.Where(r => !r.Snapshot.IsServerless && !r.Snapshot.IsPaused))
+        {
+            var dims = new Dictionary<string, string> { ["ClusterIdentifier"] = r.Snapshot.Id };
+            Add("AWS/Redshift", "CPUUtilization", dims, new Binding(r, MetricSlot.RedshiftCpu, null));
+            Add("AWS/Redshift", "PercentageDiskSpaceUsed", dims, new Binding(r, MetricSlot.RedshiftDisk, null));
+        }
+
         // EC2 instances: of EB environments, and standalone ones (running only).
         var instanceOwners = new Dictionary<string, List<(ResourceStatus Owner, MetricSlot Memory)>>();
         void Own(string id, ResourceStatus owner, MetricSlot memory)
@@ -983,6 +1184,17 @@ public sealed class HealthService
                     case MetricSlot.LbTarget5xx: lb.Target5xxCount = Sum(); break;
                     case MetricSlot.LbActiveFlows: lb.ActiveFlows = Last(points); break;
                 }
+                continue;
+            }
+            if (binding.Resource is RedshiftStatus redshift)
+            {
+                if (binding.Slot == MetricSlot.RedshiftCpu)
+                {
+                    var limits = HealthRules.ResolveThresholds(settings, target, redshift);
+                    redshift.Cpu = HealthRules.EvaluateMetric("CPU", points, limits.CpuWarn, limits.CpuCritical, settings.SustainedMinutes, now);
+                }
+                else
+                    redshift.DiskUsedPercent = Last(points);
                 continue;
             }
             if (binding.Resource is Ec2InstanceStatus ec2)
@@ -1122,6 +1334,21 @@ public sealed class HealthService
             lb.Alarms = alarms.Where(a => HealthRules.AlarmMatchesLoadBalancer(a, lb.Snapshot)).ToList();
             matched.UnionWith(lb.Alarms.Select(a => a.Name));
         }
+        foreach (var vpn in health.Vpns)
+        {
+            vpn.Alarms = alarms.Where(a => HealthRules.AlarmMatchesVpn(a, vpn.Snapshot)).ToList();
+            matched.UnionWith(vpn.Alarms.Select(a => a.Name));
+        }
+        foreach (var build in health.Builds)
+        {
+            build.Alarms = alarms.Where(a => HealthRules.AlarmMatchesCodeBuild(a, build.Snapshot)).ToList();
+            matched.UnionWith(build.Alarms.Select(a => a.Name));
+        }
+        foreach (var r in health.Redshift)
+        {
+            r.Alarms = alarms.Where(a => HealthRules.AlarmMatchesRedshift(a, r.Snapshot)).ToList();
+            matched.UnionWith(r.Alarms.Select(a => a.Name));
+        }
         // EB nodes listed here too keep their alarms on the environment, so they are not counted twice.
         var ebAlarms = health.Eb.SelectMany(e => e.Alarms).Select(a => a.Name).ToHashSet();
         foreach (var ec2 in health.Ec2)
@@ -1141,10 +1368,19 @@ public sealed class HealthService
             HealthRules.ApplyCauseSuppression(eb, target.Id, settings, now);
         foreach (var lb in health.LoadBalancers)
             HealthRules.ApplyCauseSuppression(lb, target.Id, settings);
+        foreach (var vpn in health.Vpns)
+            HealthRules.ApplyCauseSuppression(vpn, target.Id, settings);
+        foreach (var build in health.Builds)
+            HealthRules.ApplyCauseSuppression(build, target.Id, settings);
+        foreach (var stack in health.Stacks)
+            HealthRules.ApplyCauseSuppression(stack, target.Id, settings);
         foreach (var r in health.AllResources)
             r.IsHidden = settings.HiddenResources.Contains(r.ResourceKey);
         foreach (var r in health.AllResources)
+        {
             HealthRules.Recompute(r, HealthRules.ResolveThresholds(settings, target, r), settings.SustainedMinutes, HealthRules.ResolveStorageThresholds(settings, r.ResourceKey));
+            HealthRules.ApplyAlertCap(r, HealthRules.ResolveAlertCap(settings, target, r.ResourceKey));
+        }
     }
 
     private void Commit(Target target, TargetHealth health, bool notify = true)
@@ -1174,8 +1410,8 @@ public sealed class HealthService
             var had = _notified.TryGetValue(r.ResourceKey, out var prev);
             _notified[r.ResourceKey] = new NotifiedState(r.Level, active);
 
-            // Hidden resources are tracked (so unhiding does not replay old news) but never notify.
-            if (r.IsHidden)
+            // Hidden and muted resources are tracked (so unhiding does not replay old news) but never notify.
+            if (r.IsHidden || r.IsMuted)
                 continue;
             var prevLevel = had ? prev!.Level : HealthLevel.Ok;
             var wasProblem = prevLevel >= HealthLevel.Warn;
@@ -1191,7 +1427,7 @@ public sealed class HealthService
                     alarmNotifications.Add(name);
         }
 
-        foreach (var alarm in health.OtherAlarms.Where(a => a.CountsAsProblem))
+        foreach (var alarm in health.OtherAlarms.Where(a => a.CountsAsProblem && target.AlertCap != AlertCap.Info))
         {
             var key = $"{target.Id}:alarm:{alarm.Name}";
             if (!_notified.ContainsKey(key))
@@ -1206,7 +1442,7 @@ public sealed class HealthService
         foreach (var name in alarmNotifications.Where(n => !messages.Any(m => m.Message.Contains(n, StringComparison.Ordinal))))
             messages.Add(($"{target.DisplayName}: CloudWatch alarm", $"{name} is in ALARM"));
 
-        if (!emit)
+        if (!emit || !_settings.Settings.NotifyProblems)
             return;
         if (messages.Count > 3)
             _notifier.Notify($"{target.DisplayName}: {messages.Count} health changes", string.Join("\n", messages.Take(3).Select(m => m.Title)), "Open the dashboard for details");

@@ -115,6 +115,9 @@ public sealed class EcsDeploymentInfo
 
 public sealed class EcsServiceSnapshot
 {
+    /// <summary>awsvpc services (Fargate and awsvpc EC2 tasks): their tasks' security groups and subnets.</summary>
+    public List<SecurityGroupRef> SecurityGroups { get; init; } = [];
+    public List<string> SubnetIds { get; init; } = [];
     public string ClusterName { get; init; } = "";
     public string ClusterArn { get; init; } = "";
     public string ServiceName { get; init; } = "";
@@ -239,8 +242,21 @@ public abstract class ResourceStatus
 
     /// <summary>The user hid this resource from the dashboard (set from the settings on every recompute).</summary>
     [JsonIgnore] public bool IsHidden { get; set; }
+    /// <summary>The alert cap in effect (resource override, else the target's; set on every recompute).</summary>
+    [JsonIgnore] public AlertCap Cap { get; set; }
+    /// <summary>The level before the <see cref="Cap"/> was applied.</summary>
+    [JsonIgnore] public HealthLevel UncappedLevel { get; set; } = HealthLevel.Unknown;
+    /// <summary>Capped to info: shown, but never a problem.</summary>
+    [JsonIgnore] public bool IsMuted => Cap == AlertCap.Info;
+    [JsonIgnore]
+    public string? CapBadge => Cap switch
+    {
+        AlertCap.Info => "info only",
+        AlertCap.Warning => "max warning",
+        _ => null,
+    };
     /// <summary>Counts as a problem in the tray, the tree and toasts.</summary>
-    [JsonIgnore] public bool IsProblem => !IsHidden && Level >= HealthLevel.Warn;
+    [JsonIgnore] public bool IsProblem => !IsHidden && !IsMuted && Level >= HealthLevel.Warn;
 
     [JsonIgnore] public int ActiveAlarmCount => Alarms.Count(a => a.CountsAsProblem);
     [JsonIgnore] public int SuppressedAlarmCount => Alarms.Count(a => a.IsActive && a.Suppressed);
@@ -272,7 +288,9 @@ public sealed record EbNode(string InstanceId, EbInstanceHealth? Health, Instanc
 }
 
 /// <summary>One enhanced-health cause as shown to the user, with whether a suppression rule hides it.</summary>
-public sealed record CauseItem(string Text, bool Suppressed, string? Rule)
+/// <param name="Instance">Identifies this occurrence (build id, stack update) for "only this failure" suppressions.</param>
+/// <param name="InstanceLabel">How to name the occurrence, e.g. "build #42".</param>
+public sealed record CauseItem(string Text, bool Suppressed, string? Rule, string? Instance = null, string? InstanceLabel = null)
 {
     public double Opacity => Suppressed ? 0.55 : 1.0;
 }
@@ -327,6 +345,10 @@ public sealed class TargetHealth
     public List<CacheStatus> Caches { get; set; } = [];
     public List<Ec2InstanceStatus> Ec2 { get; set; } = [];
     public List<LoadBalancerStatus> LoadBalancers { get; set; } = [];
+    public List<VpnConnectionStatus> Vpns { get; set; } = [];
+    public List<CodeBuildStatus> Builds { get; set; } = [];
+    public List<StackStatus> Stacks { get; set; } = [];
+    public List<RedshiftStatus> Redshift { get; set; } = [];
     public List<AlarmInfo> OtherAlarms { get; set; } = [];
     public DateTime? HealthUpdated { get; set; }
     public DateTime? MetricsUpdated { get; set; }
@@ -336,7 +358,20 @@ public sealed class TargetHealth
     /// <summary>Every monitored resource of the target.</summary>
     [JsonIgnore]
     public IEnumerable<ResourceStatus> AllResources =>
-        Eb.Cast<ResourceStatus>().Concat(Ecs).Concat(Rds).Concat(RdsClusters).Concat(Caches).Concat(Ec2).Concat(LoadBalancers);
+        Eb.Cast<ResourceStatus>().Concat(Ecs).Concat(Rds).Concat(RdsClusters).Concat(Caches).Concat(Ec2).Concat(LoadBalancers)
+            .Concat(Vpns).Concat(Builds).Concat(Stacks).Concat(Redshift);
+
+    /// <summary>
+    /// Groups that could not be read for lack of permission (e.g. "CodeBuild: AccessDenied …"): shown on the dashboard
+    /// without failing the whole health poll.
+    /// </summary>
+    public List<string> AccessNotes { get; set; } = [];
+
+    /// <summary>
+    /// Resource kinds polled at least once. The first poll of a kind (e.g. right after an upgrade adds it) records
+    /// what is already broken without a notification for each.
+    /// </summary>
+    public HashSet<string> SeenKinds { get; set; } = [];
 }
 
 public sealed record MetricQuery(string Id, string Namespace, string MetricName, IReadOnlyDictionary<string, string> Dimensions, int PeriodSeconds = 60, string Stat = "Average");
@@ -348,7 +383,8 @@ public sealed class AlarmsResult
     public List<AlarmInfo> Alarms { get; init; } = [];
 }
 
-public sealed record Problem(long TargetId, string TargetName, string Resource, string Message, HealthLevel Level, string? ConsoleUrl = null)
+/// <param name="Capped">Lowered by an alert cap: never turns the tray icon red.</param>
+public sealed record Problem(long TargetId, string TargetName, string Resource, string Message, HealthLevel Level, string? ConsoleUrl = null, bool Capped = false)
 {
     public string Display => $"{TargetName}: {Resource} — {Message}";
 }

@@ -42,6 +42,33 @@ public interface IAwsGateway
     /// <summary>Listeners of a load balancer with their rules (conditions and actions as text).</summary>
     Task<IReadOnlyList<LbListenerInfo>> GetLoadBalancerListenersAsync(Target target, LoadBalancerSnapshot lb, CancellationToken ct);
 
+    Task<IReadOnlyList<VpnConnectionSnapshot>> GetVpnConnectionsAsync(Target target, CancellationToken ct, string? onlyId = null);
+    /// <param name="knownLatest">Newest build id per project from the previous poll (projects without recent builds keep it).</param>
+    Task<IReadOnlyList<CodeBuildProjectSnapshot>> GetCodeBuildProjectsAsync(Target target, IReadOnlyDictionary<string, string> knownLatest, CancellationToken ct, string? onlyProject = null);
+    Task<IReadOnlyList<CodeBuildRun>> GetCodeBuildHistoryAsync(Target target, string project, int max, CancellationToken ct);
+    Task<IReadOnlyList<StackSnapshot>> GetStacksAsync(Target target, CancellationToken ct, string? onlyStack = null);
+    /// <summary>Newest first.</summary>
+    Task<IReadOnlyList<StackEventInfo>> GetStackEventsAsync(Target target, string stack, int max, CancellationToken ct);
+    Task<IReadOnlyList<RedshiftSnapshot>> GetRedshiftAsync(Target target, CancellationToken ct, RedshiftSnapshot? only = null);
+
+    /// <summary>
+    /// Runs AWS Reachability Analyzer once (elevated key, approval, $0.10): creates the path, starts the analysis, waits
+    /// for it and deletes both again.
+    /// </summary>
+    Task<CatalogItem?> DescribeParameterAsync(Target target, string name, CancellationToken ct);
+    /// <summary>New value of a secret (a new AWSCURRENT version). Fails when the secret changed since <paramref name="secret"/> was read.</summary>
+    Task UpdateSecretValueAsync(Target target, CatalogItem secret, string value, CancellationToken ct);
+    Task CreateSecretAsync(Target target, string name, string value, string? description, string? kmsKeyId, CancellationToken ct);
+    /// <summary>Schedules deletion with a 7–30 day recovery window (asks for the name to be typed).</summary>
+    Task DeleteSecretAsync(Target target, CatalogItem secret, int recoveryDays, CancellationToken ct);
+    Task RestoreSecretAsync(Target target, CatalogItem secret, CancellationToken ct);
+    /// <summary>Overwrites a parameter, keeping its type, key and tier. Fails when its version changed since it was read.</summary>
+    Task PutParameterValueAsync(Target target, CatalogItem parameter, string value, CancellationToken ct);
+    Task CreateParameterAsync(Target target, string name, string value, string type, string? description, string? tier, string? kmsKeyId, CancellationToken ct);
+    Task DeleteParameterAsync(Target target, CatalogItem parameter, CancellationToken ct);
+
+    Task<AwsReachResult> VerifyReachAsync(Target target, string sourceId, string? destinationId, string? destinationIp, string protocol, int? port, CancellationToken ct);
+
     /// <summary>VPCs, subnets, network interfaces, Elastic IPs and security groups with their rules.</summary>
     Task<NetworkSnapshot> GetNetworkAsync(Target target, CancellationToken ct);
     /// <summary>Re-reads some security groups and their rules (after an edit).</summary>

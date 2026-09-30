@@ -703,6 +703,8 @@ public sealed partial class AwsGateway : IAwsGateway
                     {
                         result.Add(new EcsServiceSnapshot
                         {
+                            SecurityGroups = (s.NetworkConfiguration?.AwsvpcConfiguration?.SecurityGroups ?? []).Select(id => new SecurityGroupRef(id, "")).ToList(),
+                            SubnetIds = s.NetworkConfiguration?.AwsvpcConfiguration?.Subnets ?? [],
                             ClusterArn = clusterArn,
                             ClusterName = NameFromArn(clusterArn),
                             ServiceName = s.ServiceName ?? "",

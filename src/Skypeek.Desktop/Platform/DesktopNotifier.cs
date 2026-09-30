@@ -38,10 +38,13 @@ public sealed class DesktopNotifier(Func<bool> isLocked) : INotifier
         _ = Task.Run(() => Show(title, body));
     }
 
+    /// <summary>Shows a notification right away; returns why it could not be shown, or null.</summary>
+    public static string? Test(string title, string body) => Show(title, body);
+
     /// <summary>GVariant text string literal for gdbus.</summary>
     private static string Quote(string text) => "'" + text.Replace(@"\", @"\\").Replace("'", @"\'").Replace("\n", @"\n") + "'";
 
-    private static void Show(string title, string body)
+    private static string? Show(string title, string body)
     {
         try
         {
@@ -52,7 +55,7 @@ public sealed class DesktopNotifier(Func<bool> isLocked) : INotifier
                 foreach (var line in body.Split('\n', 2))
                     builder.AddText(line);
                 builder.Show();
-                return;
+                return null;
             }
 #endif
             if (OperatingSystem.IsMacOS())
@@ -60,18 +63,21 @@ public sealed class DesktopNotifier(Func<bool> isLocked) : INotifier
                 // The text is passed as script arguments, never spliced into the script.
                 PlatformInfo.TryRun("osascript", ["-e", "on run argv", "-e", "display notification (item 2 of argv) with title (item 1 of argv)", "-e", "end run",
                     title, body]);
-                return;
+                return null;
             }
             if (OperatingSystem.IsLinux())
             {
-                if (!PlatformInfo.TryRun("notify-send", ["--app-name", AppInfo.Name, title, body]))
-                    PlatformInfo.TryRun("gdbus", ["call", "--session", "--dest", "org.freedesktop.Notifications", "--object-path", "/org/freedesktop/Notifications",
-                        "--method", "org.freedesktop.Notifications.Notify", Quote(AppInfo.Name), "uint32 0", "''", Quote(title), Quote(body), "@as []", "@a{sv} {}", "int32 10000"]);
+                if (!PlatformInfo.TryRun("notify-send", ["--app-name", AppInfo.Name, title, body])
+                    && !PlatformInfo.TryRun("gdbus", ["call", "--session", "--dest", "org.freedesktop.Notifications", "--object-path", "/org/freedesktop/Notifications",
+                        "--method", "org.freedesktop.Notifications.Notify", Quote(AppInfo.Name), "uint32 0", "''", Quote(title), Quote(body), "@as []", "@a{sv} {}", "int32 10000"]))
+                    return "no notification service found (notify-send or gdbus)";
             }
+            return null;
         }
-        catch
+        catch (Exception ex)
         {
             // Notifications can be disabled by the user or policy.
+            return ex.Message;
         }
     }
 }

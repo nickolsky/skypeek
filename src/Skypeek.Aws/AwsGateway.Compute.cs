@@ -533,6 +533,62 @@ public sealed partial class AwsGateway
                 } while (!string.IsNullOrEmpty(token) && ++pages < MaxPages);
             });
 
+            await Part("network ACLs", async () =>
+            {
+                string? token = null;
+                var pages = 0;
+                do
+                {
+                    var resp = await c.Ec2.DescribeNetworkAclsAsync(new Ec2.DescribeNetworkAclsRequest { MaxResults = 100, NextToken = token }, ct);
+                    snapshot.NetworkAcls.AddRange((resp.NetworkAcls ?? []).Select(a => new NetworkAclInfo
+                    {
+                        Id = a.NetworkAclId ?? "",
+                        Name = TagName(a.Tags),
+                        VpcId = a.VpcId ?? "",
+                        IsDefault = a.IsDefault == true,
+                        SubnetIds = (a.Associations ?? []).Select(x => x.SubnetId).Where(x => x is not null).ToList()!,
+                        Entries = (a.Entries ?? []).Select(e => new NetworkAclEntryInfo
+                        {
+                            RuleNumber = e.RuleNumber ?? 0,
+                            Egress = e.Egress == true,
+                            Protocol = e.Protocol ?? "-1",
+                            FromPort = e.PortRange?.From,
+                            ToPort = e.PortRange?.To,
+                            Cidr = e.CidrBlock ?? e.Ipv6CidrBlock,
+                            Allow = e.RuleAction?.Value == "allow",
+                        }).OrderBy(e => e.RuleNumber).ToList(),
+                    }));
+                    token = resp.NextToken;
+                } while (!string.IsNullOrEmpty(token) && ++pages < MaxPages);
+            });
+
+            // Prefix lists that rules and routes use: their CIDRs decide what those rules allow.
+            var usedLists = snapshot.SecurityGroups.SelectMany(g => g.Rules).Select(r => r.PrefixListId)
+                .Concat(snapshot.RouteTables.SelectMany(t => t.Routes).Select(r => r.Destination.StartsWith("pl-", StringComparison.Ordinal) ? r.Destination : null))
+                .Where(id => id is not null).Distinct().Take(50).ToList();
+            if (usedLists.Count > 0)
+                await Part("prefix lists", async () =>
+                {
+                    var names = new Dictionary<string, string?>();
+                    var resp = await c.Ec2.DescribeManagedPrefixListsAsync(new Ec2.DescribeManagedPrefixListsRequest { PrefixListIds = usedLists! }, ct);
+                    foreach (var pl in resp.PrefixLists ?? [])
+                        if (pl.PrefixListId is not null)
+                            names[pl.PrefixListId] = pl.PrefixListName;
+                    foreach (var id in usedLists)
+                    {
+                        var cidrs = new List<string>();
+                        string? token = null;
+                        var pages = 0;
+                        do
+                        {
+                            var entries = await c.Ec2.GetManagedPrefixListEntriesAsync(new Ec2.GetManagedPrefixListEntriesRequest { PrefixListId = id, MaxResults = 100, NextToken = token }, ct);
+                            cidrs.AddRange((entries.Entries ?? []).Select(e => e.Cidr).Where(x => x is not null)!);
+                            token = entries.NextToken;
+                        } while (!string.IsNullOrEmpty(token) && ++pages < MaxPages);
+                        snapshot.PrefixLists.Add(new PrefixListInfo { Id = id!, Name = names.GetValueOrDefault(id!), Cidrs = cidrs });
+                    }
+                });
+
             snapshot.Error = errors.Count > 0 ? $"Could not read {string.Join(", ", errors)}" : null;
             return snapshot;
         });

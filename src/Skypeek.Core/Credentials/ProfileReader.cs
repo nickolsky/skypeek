@@ -21,6 +21,11 @@ public sealed class SsoProfile
     public required string TokenCacheFile { get; init; }
     public string? AccessToken { get; init; }
     public DateTime? TokenExpiresUtc { get; init; }
+    /// <summary>
+    /// The cached sign-in can be renewed without the browser (newer sso-session sign-ins keep a refresh token, which
+    /// only the AWS CLI uses; Skypeek only notes that it is there).
+    /// </summary>
+    public bool CanRenew { get; init; }
 
     public bool IsSignedIn(DateTime nowUtc) => AccessToken is not null && (TokenExpiresUtc is null || TokenExpiresUtc > nowUtc.AddMinutes(1));
 
@@ -133,7 +138,7 @@ public static partial class ProfileReader
             // The CLI names the cache file after the SHA-1 of the session name (or of the start URL for the old layout).
             var cacheKey = sessionName ?? startUrl;
             var tokenFile = Path.Combine(ssoCacheDirectory, Convert.ToHexString(SHA1.HashData(Encoding.UTF8.GetBytes(cacheKey))).ToLowerInvariant() + ".json");
-            var (token, expires) = ReadToken(tokenFile);
+            var (token, expires, renewable) = ReadToken(tokenFile);
             values.TryGetValue("region", out var region);
 
             result[name] = new ProfileCredentials
@@ -155,6 +160,7 @@ public static partial class ProfileReader
                     TokenCacheFile = tokenFile,
                     AccessToken = token,
                     TokenExpiresUtc = expires,
+                    CanRenew = renewable && sessionName is not null,
                 },
             };
         }
@@ -165,7 +171,7 @@ public static partial class ProfileReader
     /// The CLI rewrites the cache file when it refreshes a sign-in; a half-written file must not look like a sign-out
     /// (that would switch the profile to other keys), so unreadable JSON is retried briefly.
     /// </summary>
-    private static (string? Token, DateTime? ExpiresUtc) ReadToken(string tokenFile)
+    private static (string? Token, DateTime? ExpiresUtc, bool Renewable) ReadToken(string tokenFile)
     {
         for (var attempt = 0; ; attempt++)
         {
@@ -179,15 +185,15 @@ public static partial class ProfileReader
             }
             catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
             {
-                return (null, null);
+                return (null, null, false);
             }
         }
     }
 
-    private static (string? Token, DateTime? ExpiresUtc) ParseToken(string? json)
+    private static (string? Token, DateTime? ExpiresUtc, bool Renewable) ParseToken(string? json)
     {
         if (json is null)
-            return (null, null);
+            return (null, null, false);
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
         var token = root.TryGetProperty("accessToken", out var t) ? t.GetString() : null;
@@ -196,7 +202,35 @@ public static partial class ProfileReader
         if (root.TryGetProperty("expiresAt", out var e) && e.GetString() is { } text
             && DateTime.TryParse(text.Replace("UTC", "Z"), CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var parsed))
             expires = parsed;
-        return (string.IsNullOrEmpty(token) ? null : token, expires);
+        // Only whether a refresh token is there (and its client registration still valid); its value is never read.
+        var renewable = root.TryGetProperty("refreshToken", out var r) && r.ValueKind == JsonValueKind.String && !r.ValueEquals(string.Empty)
+            && !(root.TryGetProperty("registrationExpiresAt", out var re) && re.GetString() is { } reText
+                 && DateTime.TryParse(reText.Replace("UTC", "Z"), CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var regExpires)
+                 && regExpires <= DateTime.UtcNow);
+        return (string.IsNullOrEmpty(token) ? null : token, expires, renewable);
+    }
+
+    /// <summary>The raw lines of one [sso-session] section (start URL, region, scopes: no secrets), or null.</summary>
+    public static string? SsoSessionSection(string configPath, string sessionName)
+    {
+        if (ReadText(configPath) is not { } content)
+            return null;
+        var lines = new List<string>();
+        var inside = false;
+        foreach (var raw in content.Split('\n'))
+        {
+            var line = raw.Trim();
+            if (line.StartsWith('[') && line.EndsWith(']'))
+            {
+                inside = line[1..^1].Trim() == $"sso-session {sessionName}";
+                if (inside)
+                    lines.Add($"[sso-session {sessionName}]");
+                continue;
+            }
+            if (inside && line.Length > 0 && line[0] is not ('#' or ';'))
+                lines.Add(line);
+        }
+        return lines.Count > 1 ? string.Join('\n', lines) : null;
     }
 
     public static IReadOnlyDictionary<string, ProfileCredentials> Parse(string content)

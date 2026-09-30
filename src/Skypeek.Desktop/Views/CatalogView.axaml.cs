@@ -109,6 +109,54 @@ public partial class CatalogView : UserControl
         StatusText.Text = $"{results.Count} of {total} items · ↑↓ select · Ctrl+C copy name · Ctrl+F search · Esc hide";
     }
 
+    private void OnNewSecret(object? sender, RoutedEventArgs e) => _ = CreateAsync(CatalogKind.Secret);
+
+    private void OnNewParameter(object? sender, RoutedEventArgs e) => _ = CreateAsync(CatalogKind.Parameter);
+
+    private async Task CreateAsync(CatalogKind kind)
+    {
+        var targets = _session.Settings.Targets
+            .Where(t => t.Enabled && !string.IsNullOrEmpty(t.ElevatedProfileName) && (kind == CatalogKind.Secret ? t.SecretsEnabled : t.ParamsEnabled))
+            .ToList();
+        if (targets.Count == 0)
+        {
+            await ConfirmDialog.InformAsync(Dialogs.OwnerOf(this), "No target can create it",
+                "Creating uses a target's elevated key. Set one in Settings → Accounts & regions.");
+            return;
+        }
+        var preselected = (TargetFilter.SelectedItem as TargetOption)?.TargetId is { } id ? targets.FirstOrDefault(t => t.Id == id) : null;
+        var dialog = new SecretEditorDialog(kind, null, null, targets, null, preselected);
+        if (!await Dialogs.ShowAsync(dialog, Dialogs.OwnerOf(this)) || dialog.Result is not { } edit)
+            return;
+        try
+        {
+            if (kind == CatalogKind.Secret)
+                await _session.Gateway.CreateSecretAsync(edit.Target, edit.Name, edit.Value, edit.Description, edit.KmsKeyId, CancellationToken.None);
+            else
+                await _session.Gateway.CreateParameterAsync(edit.Target, edit.Name, edit.Value, edit.Type ?? "SecureString", edit.Description, edit.Tier, edit.KmsKeyId, CancellationToken.None);
+            var created = kind == CatalogKind.Secret
+                ? await _session.Gateway.DescribeSecretAsync(edit.Target, edit.Name, CancellationToken.None)
+                : await _session.Gateway.DescribeParameterAsync(edit.Target, edit.Name, CancellationToken.None);
+            if (created is not null)
+            {
+                created.FirstSeen = DateTime.UtcNow;
+                _session.Catalog.Upsert(created);
+            }
+            Query.Text = edit.Name;
+            StatusText.Text = $"Created {edit.Name} in {edit.Target.DisplayName}.";
+        }
+        catch (Core.ElevationDeniedException)
+        {
+            StatusText.Text = "Not approved; nothing was sent to AWS.";
+        }
+        catch (Exception ex)
+        {
+            await ConfirmDialog.InformAsync(Dialogs.OwnerOf(this), $"{edit.Name} was not created",
+                ex is Amazon.Runtime.AmazonServiceException a ? $"{a.ErrorCode}: {a.Message}" : ex.Message);
+            App.Current.AskToSignInIfNeeded(ex);
+        }
+    }
+
     private void OnResultSelected(object? sender, SelectionChangedEventArgs e) =>
         _details.Show(Results.SelectedItem as SearchResult);
 

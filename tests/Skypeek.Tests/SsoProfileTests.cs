@@ -123,6 +123,101 @@ public class SsoProfileTests
         Assert.Equal("new", monitor.Acquire(profile).Sso!.AccessToken);
     }
 
+    private static void WriteRenewableToken(string dir, string key, string token, DateTime expiresUtc) =>
+        File.WriteAllText(CacheFile(dir, key), JsonSerializer.Serialize(new
+        {
+            startUrl = "x", region = "us-east-1", accessToken = token, expiresAt = expiresUtc.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+            clientId = "c", clientSecret = "s", registrationExpiresAt = DateTime.UtcNow.AddDays(30).ToString("yyyy-MM-ddTHH:mm:ssZ"), refreshToken = "r",
+        }));
+
+    [Fact]
+    public async Task Sign_in_ending_and_returning_raise_events_once()
+    {
+        using var dir = new TempDir();
+        var credentials = dir.File("credentials");
+        await File.WriteAllTextAsync(credentials, "");
+        var config = dir.File("config");
+        await File.WriteAllTextAsync(config, Config);
+        WriteToken(dir.Path, "company", "t1", DateTime.UtcNow.AddHours(1));
+        var monitor = new CredentialMonitor(credentials, new MemoryHaltStore(), new FakeValidator(), _ => "us-east-1", config, dir.Path);
+        var ended = new List<string>();
+        var restored = new List<string>();
+        // legacy-admin has never signed in: reported at the start (like a sign-in that ended while the app was closed).
+        monitor.SignInEnded += p => ended.AddRange(p.Where(n => n != "legacy-admin"));
+        monitor.SignInRestored += p => restored.AddRange(p);
+        await monitor.StartAsync(watch: false);
+        Assert.Empty(ended);
+
+        WriteToken(dir.Path, "company", "t1", DateTime.UtcNow.AddMinutes(-5));
+        await monitor.ReloadAsync();
+        await monitor.ReloadAsync();
+        Assert.Equal(["111122223333_ReadOnlyAccess"], ended);
+
+        WriteToken(dir.Path, "company", "t2", DateTime.UtcNow.AddHours(8));
+        await monitor.ReloadAsync();
+        Assert.Equal(["111122223333_ReadOnlyAccess"], restored);
+    }
+
+    [Fact]
+    public async Task Renewable_sign_in_is_renewed_before_it_ends_and_only_reported_when_renewal_fails()
+    {
+        using var dir = new TempDir();
+        var credentials = dir.File("credentials");
+        await File.WriteAllTextAsync(credentials, "");
+        var config = dir.File("config");
+        await File.WriteAllTextAsync(config, Config);
+        WriteRenewableToken(dir.Path, "company", "t1", DateTime.UtcNow.AddMinutes(5));
+        var monitor = new CredentialMonitor(credentials, new MemoryHaltStore(), new FakeValidator(), _ => "us-east-1", config, dir.Path);
+        var renewals = 0;
+        var cliWorks = true;
+        monitor.Renewer = (_, sso) =>
+        {
+            renewals++;
+            Assert.True(sso.CanRenew);
+            // What the CLI does: write a fresh token (or fail and leave the old one).
+            if (cliWorks)
+                WriteRenewableToken(dir.Path, "company", $"t{renewals + 1}", DateTime.UtcNow.AddHours(1));
+            return Task.CompletedTask;
+        };
+        var ended = new List<string>();
+        monitor.SignInEnded += p => ended.AddRange(p.Where(n => n != "legacy-admin"));
+        await monitor.StartAsync(watch: false);
+        Assert.Equal(1, renewals);
+        Assert.Equal("t2", monitor.Acquire("111122223333_ReadOnlyAccess").Sso!.AccessToken);
+
+        // A token that has already run out, and a CLI that cannot renew it: reported once the attempt is over.
+        cliWorks = false;
+        WriteRenewableToken(dir.Path, "company", "t9", DateTime.UtcNow.AddMinutes(-1));
+        monitor.Clock = () => DateTime.UtcNow.AddHours(2); // past the retry interval
+        await monitor.ReloadAsync();
+        Assert.Equal(2, renewals);
+        Assert.Equal(["111122223333_ReadOnlyAccess"], ended);
+
+        // Throttled: no new attempt on every reload.
+        await monitor.ReloadAsync();
+        Assert.Equal(2, renewals);
+
+        // Renewal switched off: never tried.
+        monitor.RenewEnabled = () => false;
+        monitor.Clock = () => DateTime.UtcNow.AddHours(5);
+        await monitor.ReloadAsync();
+        Assert.Equal(2, renewals);
+    }
+
+    [Fact]
+    public void Sso_session_section_is_copied_without_other_profiles()
+    {
+        using var dir = new TempDir();
+        var config = dir.File("config");
+        File.WriteAllText(config, Config);
+        var section = ProfileReader.SsoSessionSection(config, "company");
+        Assert.NotNull(section);
+        Assert.StartsWith("[sso-session company]", section);
+        Assert.Contains("sso_start_url = https://example.awsapps.com/start", section);
+        Assert.DoesNotContain("legacy", section);
+        Assert.Null(ProfileReader.SsoSessionSection(config, "missing"));
+    }
+
     [Fact]
     public void Role_credential_exchange_is_a_logged_read_that_never_records_the_token()
     {

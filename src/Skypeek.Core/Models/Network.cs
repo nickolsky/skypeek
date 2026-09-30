@@ -20,8 +20,23 @@ public sealed class NetworkSnapshot
     public List<NatGatewayInfo> NatGateways { get; set; } = [];
     public List<VpcEndpointInfo> Endpoints { get; set; } = [];
     public List<PeeringInfo> Peerings { get; set; } = [];
+    /// <summary>Network ACLs (stateless subnet firewalls), for the reachability check.</summary>
+    public List<NetworkAclInfo> NetworkAcls { get; set; } = [];
+    /// <summary>Managed prefix lists used by security group rules or routes, with their CIDRs.</summary>
+    public List<PrefixListInfo> PrefixLists { get; set; } = [];
     /// <summary>Parts that could not be read (the rest is still shown).</summary>
     public string? Error { get; set; }
+
+    /// <summary>A shallow copy (the lists are new, their items shared) for patching one part.</summary>
+    public NetworkSnapshot Copy()
+    {
+        var copy = (NetworkSnapshot)MemberwiseClone();
+        foreach (var property in typeof(NetworkSnapshot).GetProperties())
+            if (property.CanWrite && property.GetValue(this) is System.Collections.IList list
+                && Activator.CreateInstance(property.PropertyType, list) is { } fresh)
+                property.SetValue(copy, fresh);
+        return copy;
+    }
 }
 
 public sealed class VpcInfo
@@ -246,23 +261,9 @@ public static class NetworkRules
         return int.TryParse(parts[1], out var length) && length >= 0 && length <= max;
     }
 
-    /// <summary>An IP address or CIDR inside <paramref name="cidr"/>.</summary>
-    public static bool Contains(string cidr, string ip)
-    {
-        var parts = cidr.Split('/');
-        if (parts.Length != 2 || !IPAddress.TryParse(parts[0], out var network) || !int.TryParse(parts[1], out var length)
-            || !IPAddress.TryParse(ip.Split('/')[0], out var address) || network.AddressFamily != address.AddressFamily)
-            return false;
-        var a = network.GetAddressBytes();
-        var b = address.GetAddressBytes();
-        for (var bit = 0; bit < length; bit++)
-        {
-            var mask = (byte)(0x80 >> (bit % 8));
-            if ((a[bit / 8] & mask) != (b[bit / 8] & mask))
-                return false;
-        }
-        return true;
-    }
+    /// <summary>An IP address or CIDR entirely inside <paramref name="cidr"/>.</summary>
+    public static bool Contains(string cidr, string ipOrCidr) =>
+        IpNet.Parse(cidr) is { } outer && IpNet.Parse(ipOrCidr) is { } inner && outer.Contains(inner);
 
     /// <summary>The route table a subnet uses: its explicit association, else the VPC's main table.</summary>
     public static (RouteTableInfo? Table, bool Explicit) RouteTableOf(NetworkSnapshot s, SubnetInfo subnet) =>

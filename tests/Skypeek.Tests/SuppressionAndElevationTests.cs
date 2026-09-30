@@ -246,6 +246,58 @@ public class ElevationTests
     }
 
     [Fact]
+    public async Task Secret_and_parameter_changes_use_the_elevated_key_and_deleting_needs_the_name_typed()
+    {
+        using var dir = new TempDir();
+        var monitor = await Monitor(dir);
+        var approver = new Approver(false);
+        using var factory = new AwsClientFactory();
+        var gateway = new AwsGateway(monitor, factory, new CapturingSink(), approver);
+        var secret = new CatalogItem { TargetId = 1, Kind = CatalogKind.Secret, Name = "prod/db" };
+        var parameter = new CatalogItem { TargetId = 1, Kind = CatalogKind.Parameter, Name = "/app/url", Type = "String", Version = 3 };
+
+        await Assert.ThrowsAsync<ElevationDeniedException>(() => gateway.UpdateSecretValueAsync(Target, secret, "s3cr3t-value", CancellationToken.None));
+        await Assert.ThrowsAsync<ElevationDeniedException>(() => gateway.CreateSecretAsync(Target, "prod/new", "s3cr3t-value", null, null, CancellationToken.None));
+        await Assert.ThrowsAsync<ElevationDeniedException>(() => gateway.DeleteSecretAsync(Target, secret, 30, CancellationToken.None));
+        await Assert.ThrowsAsync<ElevationDeniedException>(() => gateway.PutParameterValueAsync(Target, parameter, "https://example.test", CancellationToken.None));
+        await Assert.ThrowsAsync<ElevationDeniedException>(() => gateway.DeleteParameterAsync(Target, parameter, CancellationToken.None));
+        Assert.Equal(5, approver.Requests.Count);
+        Assert.All(approver.Requests, r =>
+        {
+            Assert.True(r.Elevated);
+            Assert.Equal("123456789012_AWSAdministratorAccess", r.Profile);
+            Assert.DoesNotContain("s3cr3t-value", r.Explanation ?? "");
+            Assert.DoesNotContain("https://example.test", r.Explanation ?? "");
+        });
+        Assert.Null(approver.Requests[0].ConfirmPhrase);
+        Assert.Equal("prod/db", approver.Requests[2].ConfirmPhrase);
+        Assert.Contains("30 days", approver.Requests[2].Explanation);
+        Assert.Contains("version 4", approver.Requests[3].Explanation);
+        Assert.Equal("/app/url", approver.Requests[4].ConfirmPhrase);
+
+        // Invalid input never reaches the approval dialog.
+        await Assert.ThrowsAsync<ArgumentException>(() => gateway.DeleteSecretAsync(Target, secret, 3, CancellationToken.None));
+        await Assert.ThrowsAsync<ArgumentException>(() => gateway.PutParameterValueAsync(Target, parameter, new string('x', 5000), CancellationToken.None));
+        await Assert.ThrowsAsync<ArgumentException>(() => gateway.CreateParameterAsync(Target, "/a", "v", "Binary", null, null, null, CancellationToken.None));
+        Assert.Equal(5, approver.Requests.Count);
+    }
+
+    [Fact]
+    public async Task Reachability_analyzer_is_one_approved_elevated_call_with_its_cost()
+    {
+        using var dir = new TempDir();
+        var monitor = await Monitor(dir);
+        var approver = new Approver(false);
+        using var factory = new AwsClientFactory();
+        var gateway = new AwsGateway(monitor, factory, new CapturingSink(), approver);
+        await Assert.ThrowsAsync<ElevationDeniedException>(() => gateway.VerifyReachAsync(Target, "eni-1", "eni-2", null, "tcp", 5432, CancellationToken.None));
+        var request = Assert.Single(approver.Requests);
+        Assert.True(request.Elevated);
+        Assert.Contains("$0.10", request.Explanation);
+        Assert.Contains("deletes both", request.Explanation);
+    }
+
+    [Fact]
     public async Task Same_key_for_both_still_asks_before_every_elevated_action()
     {
         using var dir = new TempDir();

@@ -26,6 +26,10 @@ public enum NodeKind
     Ec2Instance,
     LoadBalancer,
     TargetGroup,
+    Vpn,
+    CodeBuildProject,
+    Stack,
+    Redshift,
     // Network tab
     Vpc,
     Subnet,
@@ -47,6 +51,10 @@ public sealed partial class DashNode : ObservableObject
     public bool Dim { get; set; }
     /// <summary>A resource the user hid; only shown with "Show hidden".</summary>
     public bool IsHiddenResource { get; set; }
+    /// <summary>A resource (or everything below a target) capped to "info only": shown, not counted.</summary>
+    public bool IsMuted { get; set; }
+    /// <summary>The alert cap badge ("info only", "max warning").</summary>
+    public string? CapBadge { get; set; }
     /// <summary>The resource behind the row (hide/unhide from the context menu).</summary>
     public ResourceStatus? Resource => Payload as ResourceStatus;
     public bool CanHide => Resource is { IsHidden: false };
@@ -61,6 +69,9 @@ public sealed partial class DashNode : ObservableObject
 
     [ObservableProperty] private bool _isExpanded;
     [ObservableProperty] private bool _isSelected;
+    /// <summary>"refreshing health…" while something for this row is being refreshed.</summary>
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(IsBusy))] private string? _activity;
+    public bool IsBusy => Activity is not null;
 
     /// <summary>Matched the tree search (shown highlighted).</summary>
     public bool IsMatch { get; set; }
@@ -251,6 +262,10 @@ public sealed class SuppressionsDetail
         "cache" => "ElastiCache",
         "ec2" => "EC2 instance",
         "elb" => "load balancer",
+        "vpn" => "Site-to-Site VPN",
+        "codebuild" => "CodeBuild project",
+        "cfn" => "CloudFormation stack",
+        "redshift" => "Redshift",
         _ => kind,
     };
 }
@@ -325,6 +340,21 @@ public static class DashboardTreeBuilder
                     children.Add(Ec2Group(target, health, problemsOnly, session.Settings.Settings.Ec2IncludeEbInstances));
                 if (target.ElbEnabled)
                     children.Add(LoadBalancerGroup(target, health, problemsOnly));
+                if (target.RedshiftEnabled && health.Redshift.Count > 0)
+                    children.Add(RedshiftGroup(target, health, problemsOnly));
+                if (target.VpnEnabled && health.Vpns.Count > 0)
+                    children.Add(VpnGroup(target, health, problemsOnly));
+                if (target.CodeBuildEnabled && health.Builds.Count > 0)
+                    children.Add(CodeBuildGroup(target, health, problemsOnly));
+                if (target.StacksEnabled && health.Stacks.Count > 0)
+                    children.Add(StackGroup(target, health, problemsOnly));
+                foreach (var note in health.AccessNotes)
+                    children.Add(new DashNode
+                    {
+                        Key = $"{target.Id}:access:{note.Split(':')[0]}", Kind = NodeKind.Message, Title = $"No permission — {note}", Level = HealthLevel.Unknown,
+                        Payload = new MessageDetail($"{note}\n\nThe read-only role cannot read this part, so it is left out; everything else is still monitored. " +
+                            "Grant the read permission (see README → Permissions), or turn the feature off for this target in Settings → Accounts & regions."),
+                    });
                 children.Add(AlarmGroup(target, health, problemsOnly));
                 if (health.HealthError is { } he)
                     children.Add(new DashNode { Key = $"{target.Id}:herr", Kind = NodeKind.Message, Title = $"Health poll error: {he}", Level = HealthLevel.Warn, ProblemCount = 1, Payload = new MessageDetail(he) });
@@ -355,8 +385,14 @@ public static class DashboardTreeBuilder
                 SearchText = $"{target.ProfileName} {target.ElevatedProfileName} {account}",
                 Payload = BuildTargetDetail(session, target, health, cred, account, costs, nat),
             };
+            node.CapBadge = target.AlertCap switch { AlertCap.Info => "info only", AlertCap.Warning => "max warning", _ => null };
             foreach (var c in kept)
+            {
+                // "Info only" on the target: everything below is shown but counts as nothing.
+                if (target.AlertCap == AlertCap.Info)
+                    MarkMuted(c);
                 node.Children.Add(c);
+            }
             Summarize(node);
             nodes.Add(node);
         }
@@ -401,6 +437,14 @@ public static class DashboardTreeBuilder
         var changed = false;
         foreach (var child in group.Children.ToList())
         {
+            if (child.Payload is ResourceStatus { CapBadge: { } badge })
+                child.CapBadge = badge;
+            if (child.Payload is ResourceStatus { IsHidden: false, IsMuted: true })
+            {
+                changed = true;
+                MarkMuted(child);
+                continue;
+            }
             if (child.Payload is ResourceStatus { IsHidden: true })
             {
                 changed = true;
@@ -421,9 +465,18 @@ public static class DashboardTreeBuilder
         // Recount from the remaining children: a hidden problem no longer counts.
         group.ProblemCount = (group.Payload is ResourceStatus { IsProblem: true } ? 1 : 0) + group.Children.Sum(c => c.ProblemCount);
         group.Level = group.Payload is ResourceStatus own ? own.Level
-            : group.Children.Where(c => !c.IsHiddenResource).Select(c => c.Level).DefaultIfEmpty(HealthLevel.Ok).Max() is var max && max >= HealthLevel.Warn ? max : HealthLevel.Ok;
+            : group.Children.Where(c => !c.IsHiddenResource && !c.IsMuted).Select(c => c.Level).DefaultIfEmpty(HealthLevel.Ok).Max() is var max && max >= HealthLevel.Warn ? max : HealthLevel.Ok;
         if (group.Right is { } right && right.IndexOf('/') is var slash and > 0 && int.TryParse(right[..slash], out _))
             group.Right = $"{group.ProblemCount}{right[slash..]}";
+    }
+
+    /// <summary>Info-only resources keep their colour but count as nothing (and do not colour their group).</summary>
+    private static void MarkMuted(DashNode node)
+    {
+        node.IsMuted = true;
+        node.ProblemCount = 0;
+        foreach (var child in node.Children)
+            MarkMuted(child);
     }
 
     private static void MarkHidden(DashNode node)
@@ -766,6 +819,118 @@ public static class DashboardTreeBuilder
         return group;
     }
 
+    private static DashNode VpnGroup(Target target, TargetHealth health, bool problemsOnly)
+    {
+        var group = new DashNode
+        {
+            Key = $"{target.Id}:vpn", Kind = NodeKind.Group, Title = "Site-to-Site VPN",
+            Payload = new MessageDetail($"{health.Vpns.Count} VPN connection(s). One tunnel down is a warning (suppress it for sites with a single tunnel); all tunnels down is critical."),
+        };
+        foreach (var vpn in health.Vpns.OrderByDescending(v => v.Level).ThenBy(v => v.DisplayName, StringComparer.OrdinalIgnoreCase))
+        {
+            if (problemsOnly && vpn.Level < HealthLevel.Warn)
+                continue;
+            var s = vpn.Snapshot;
+            group.Children.Add(new DashNode
+            {
+                Key = vpn.ResourceKey, Kind = NodeKind.Vpn, Title = s.Name ?? s.Id,
+                Subtitle = vpn.Level >= HealthLevel.Warn ? vpn.ReasonText : $"{s.State} · {s.CustomerText} · {s.GatewayText}",
+                Gauges = s.Tunnels.Count == 0 ? [] : [new Gauge("Tunnels", s.UpCount * 100.0 / s.Tunnels.Count, $"{s.UpCount}/{s.Tunnels.Count} up",
+                    s.UpCount == s.Tunnels.Count ? HealthLevel.Ok : s.UpCount == 0 ? HealthLevel.Critical : HealthLevel.Warn)],
+                SearchText = $"{s.Id} {s.CustomerGatewayIp} {s.CustomerGatewayId} {s.VpnGatewayId} {s.TransitGatewayId} {string.Join(' ', s.Tunnels.Select(t => t.OutsideIp))} {string.Join(' ', s.StaticRoutes)}",
+                Level = vpn.Level, ProblemCount = vpn.Level >= HealthLevel.Warn ? 1 : 0, Payload = vpn,
+            });
+        }
+        Summarize(group, health.Vpns.Count);
+        return group;
+    }
+
+    private static DashNode CodeBuildGroup(Target target, TargetHealth health, bool problemsOnly)
+    {
+        var group = new DashNode
+        {
+            Key = $"{target.Id}:codebuild", Kind = NodeKind.Group, Title = "CodeBuild",
+            Payload = new MessageDetail($"{health.Builds.Count} project(s). A failed latest build is critical (no CloudWatch alarm needed); suppress a known failure from the project's details."),
+        };
+        foreach (var b in health.Builds.OrderByDescending(b => b.Level).ThenByDescending(b => b.Snapshot.LatestBuild?.Started).ThenBy(b => b.DisplayName, StringComparer.OrdinalIgnoreCase))
+        {
+            if (problemsOnly && b.Level < HealthLevel.Warn)
+                continue;
+            var latest = b.Snapshot.LatestBuild;
+            group.Children.Add(new DashNode
+            {
+                Key = b.ResourceKey, Kind = NodeKind.CodeBuildProject, Title = b.DisplayName,
+                Subtitle = b.Level >= HealthLevel.Warn ? b.ReasonText : latest?.Summary ?? "no builds",
+                Right = b.IsBuilding ? $"building {latest!.NumberText}" : null,
+                SearchText = $"{latest?.Id} {latest?.ResolvedSourceVersion} {latest?.Initiator}",
+                Level = b.Level, ProblemCount = b.Level >= HealthLevel.Warn ? 1 : 0, Payload = b,
+                Dim = latest is null || latest.Started < DateTime.UtcNow.AddDays(-90),
+            });
+        }
+        Summarize(group, health.Builds.Count);
+        return group;
+    }
+
+    /// <summary>Stacks, with nested stacks under their root stack.</summary>
+    private static DashNode StackGroup(Target target, TargetHealth health, bool problemsOnly)
+    {
+        var group = new DashNode
+        {
+            Key = $"{target.Id}:cfn", Kind = NodeKind.Group, Title = "CloudFormation",
+            Payload = new MessageDetail($"{health.Stacks.Count} stack(s). Failed stacks (and ROLLBACK_COMPLETE) are critical; an update that failed and rolled back is a warning. "
+                                        + "Select a stack for its history."),
+        };
+        DashNode Node(StackStatus st) => new()
+        {
+            Key = st.ResourceKey, Kind = NodeKind.Stack, Title = st.DisplayName,
+            Subtitle = st.Level >= HealthLevel.Warn ? st.ReasonText
+                : $"{st.Snapshot.Status}{((st.Snapshot.LastUpdated ?? st.Snapshot.Created) is { } t ? $" · {t.ToLocalTime():g}" : "")}",
+            SearchText = $"{st.Snapshot.Id} {st.Snapshot.Status} {st.Snapshot.Description}",
+            Level = st.Level, ProblemCount = st.Level >= HealthLevel.Warn ? 1 : 0, Payload = st,
+        };
+        var byId = health.Stacks.ToDictionary(s => s.Snapshot.Id);
+        var roots = health.Stacks.Where(s => !s.Snapshot.IsNested || !byId.ContainsKey(s.Snapshot.RootId!)).ToList();
+        foreach (var root in roots.OrderByDescending(s => s.Level).ThenBy(s => s.DisplayName, StringComparer.OrdinalIgnoreCase))
+        {
+            var nested = health.Stacks.Where(s => s.Snapshot.RootId == root.Snapshot.Id).OrderByDescending(s => s.Level).ThenBy(s => s.DisplayName).ToList();
+            var worst = nested.Select(n => n.Level).Append(root.Level).Max();
+            if (problemsOnly && worst < HealthLevel.Warn)
+                continue;
+            var node = Node(root);
+            foreach (var child in nested.Where(n => !problemsOnly || n.Level >= HealthLevel.Warn))
+                node.Children.Add(Node(child));
+            group.Children.Add(node);
+        }
+        Summarize(group, health.Stacks.Count);
+        return group;
+    }
+
+    private static DashNode RedshiftGroup(Target target, TargetHealth health, bool problemsOnly)
+    {
+        var group = new DashNode
+        {
+            Key = $"{target.Id}:redshift", Kind = NodeKind.Group, Title = "Redshift",
+            Payload = new MessageDetail($"{health.Redshift.Count} cluster(s) and serverless workgroup(s). Read-only: manage them in the console."),
+        };
+        foreach (var r in health.Redshift.OrderByDescending(r => r.Level).ThenBy(r => r.DisplayName, StringComparer.OrdinalIgnoreCase))
+        {
+            if (problemsOnly && r.Level < HealthLevel.Warn)
+                continue;
+            var s = r.Snapshot;
+            group.Children.Add(new DashNode
+            {
+                Key = r.ResourceKey, Kind = NodeKind.Redshift, Title = s.Id,
+                Subtitle = r.Level >= HealthLevel.Warn ? r.ReasonText : $"{s.Status} · {s.SizeText}",
+                Gauges = new[] { Gauge.For("CPU", r.Cpu), r.DiskUsedPercent is { } d ? new Gauge("Disk", d, $"{d:0}%", d >= 90 ? HealthLevel.Warn : HealthLevel.Ok) : null }
+                    .Where(g => g is not null).ToList()!,
+                SearchText = $"{s.Endpoint} {s.VpcId} {s.Namespace} {string.Join(' ', s.SecurityGroups.Select(g => g.Id))}",
+                Level = r.Level, ProblemCount = r.Level >= HealthLevel.Warn ? 1 : 0, Payload = r, Dim = s.IsPaused,
+            });
+        }
+        Summarize(group, health.Redshift.Count);
+        return group;
+    }
+
     private static DashNode EcsGroup(Target target, TargetHealth health, bool problemsOnly)
     {
         var group = new DashNode { Key = $"{target.Id}:ecs", Kind = NodeKind.Group, Title = "ECS", Payload = new MessageDetail($"{health.Ecs.Count} service(s).") };
@@ -881,7 +1046,7 @@ public static class DashboardTreeBuilder
         if (node.Children.Count > 0)
         {
             node.ProblemCount = Math.Max(node.ProblemCount, node.Children.Sum(c => c.ProblemCount));
-            node.Level = node.Children.Max(c => c.Level) is var max && max >= HealthLevel.Warn ? max : HealthLevel.Ok;
+            node.Level = node.Children.Where(c => !c.IsMuted).Select(c => c.Level).DefaultIfEmpty(HealthLevel.Ok).Max() is var max && max >= HealthLevel.Warn ? max : HealthLevel.Ok;
         }
         if (total is not null && node.Right is null)
         {

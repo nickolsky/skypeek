@@ -2,7 +2,11 @@ using System.Text.Json.Serialization;
 
 namespace Skypeek.Core.Models;
 
-public sealed record SecurityGroupRef(string Id, string Name);
+/// <param name="Name">Empty when the source only gives the id (the dashboard fills it in from the Network tab data).</param>
+public sealed record SecurityGroupRef(string Id, string Name)
+{
+    public string Text => Name is { Length: > 0 } ? $"{Name} · {Id}" : Id;
+}
 
 /// <summary>One network interface of an EC2 instance with its addresses and security groups.</summary>
 public sealed class Ec2InterfaceInfo

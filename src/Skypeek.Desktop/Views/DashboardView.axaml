@@ -25,6 +25,35 @@
     <UserControl.Resources>
         <views:BoolBrushConverter x:Key="DeployStatusBrush" True="#FFFFB86B" False="#FF6FD08C" />
         <views:BoolTextConverter x:Key="WriterText" True="writer" False="reader" />
+        <views:BoolTextConverter x:Key="ProtectionText" True="termination protection on" False="termination protection off" />
+        <views:BoolTextConverter x:Key="PublicText" True="publicly accessible" False="private" />
+        <views:GroupNamesConverter x:Key="GroupNames" />
+
+        <!-- Suppressible problems of a resource (CauseItems), with Suppress / Unsuppress. -->
+        <DataTemplate x:Key="CauseRows">
+            <Border Classes="panel" Margin="0,0,0,8" IsVisible="{Binding CauseItems.Count, Converter={StaticResource HasItems}}">
+                <StackPanel>
+                    <TextBlock Classes="section" Text="Problems" Margin="0,0,0,4" />
+                    <ItemsControl ItemsSource="{Binding CauseItems}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <DockPanel Margin="0,2">
+                                    <Button DockPanel.Dock="Right" Content="Suppress…" Padding="6,1" Click="OnSuppressCause" Tag="{Binding}" VerticalAlignment="Top"
+                                            IsVisible="{Binding !Suppressed}" />
+                                    <Button DockPanel.Dock="Right" Content="Unsuppress" Padding="6,1" Click="OnUnsuppressCause" Tag="{Binding}" VerticalAlignment="Top"
+                                            IsVisible="{Binding Suppressed}" />
+                                    <StackPanel Opacity="{Binding Opacity}" Margin="0,0,8,0">
+                                        <TextBlock Classes="body" Text="{Binding Text, StringFormat='• {0}'}" TextWrapping="Wrap" />
+                                        <TextBlock Classes="caption" Text="{Binding Rule, StringFormat='suppressed by rule: {0}'}" TextWrapping="Wrap"
+                                                   IsVisible="{Binding Suppressed}" />
+                                    </StackPanel>
+                                </DockPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+        </DataTemplate>
 
         <!-- Alarm list used inside resource details. -->
         <DataTemplate x:Key="AlarmRows">
@@ -90,14 +119,7 @@
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
                         <Button Padding="6,1" Margin="0,0,6,4" Click="OnOpenSecurityGroup" Tag="{Binding Id}" ToolTip.Tip="Open this security group on the Network tab">
-                            <TextBlock>
-                                <TextBlock.Text>
-                                    <MultiBinding StringFormat="{}{0} · {1}">
-                                        <Binding Path="Name" />
-                                        <Binding Path="Id" />
-                                    </MultiBinding>
-                                </TextBlock.Text>
-                            </TextBlock>
+                            <TextBlock Text="{Binding Text}" />
                         </Button>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
@@ -237,6 +259,8 @@
                     <views:IconButton Content="Copy name" Symbol="Copy" Click="OnCopyResource" Margin="0,0,6,4" />
                     <Button Content="Thresholds…" Click="OnSetThresholds" Margin="0,0,6,4" />
                     <views:HideButton Click="OnToggleHidden" Margin="0,0,6,4" />
+                    <views:AlertCapButton Margin="0,0,6,4" />
+                    <views:ReachButton Margin="0,0,6,4" />
                 </WrapPanel>
                 <TextBlock Text="{Binding ReasonText}" Foreground="#FFFFB86B" TextWrapping="Wrap" Margin="0,0,0,6" IsVisible="{Binding ReasonText, Converter={StaticResource NotEmpty}}" />
 
@@ -334,6 +358,10 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
 
+                <StackPanel IsVisible="{Binding Snapshot.InstanceIds, Converter={StaticResource GroupNames}, ConverterParameter=any}">
+                    <TextBlock Classes="section" Text="Security groups (of its instances)" />
+                    <ContentControl Content="{Binding Snapshot.InstanceIds, Converter={StaticResource GroupNames}}" ContentTemplate="{StaticResource SecurityGroupChips}" />
+                </StackPanel>
                 <views:HistoryPanel Resource="{Binding}" />
                 <views:CostLine Resource="{Binding}" />
                 <views:UsagePanel Resource="{Binding}" />
@@ -435,6 +463,8 @@
                     <views:IconButton Content="Copy name" Symbol="Copy" Click="OnCopyResource" Margin="0,0,6,4" />
                     <Button Content="Thresholds…" Click="OnSetThresholds" Margin="0,0,6,4" />
                     <views:HideButton Click="OnToggleHidden" Margin="0,0,6,4" />
+                    <views:AlertCapButton Margin="0,0,6,4" />
+                    <views:ReachButton Margin="0,0,6,4" />
                 </WrapPanel>
                 <TextBlock Text="{Binding ReasonText}" Foreground="#FFFFB86B" TextWrapping="Wrap" Margin="0,0,0,6" IsVisible="{Binding ReasonText, Converter={StaticResource NotEmpty}}" />
                 <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="Tasks" />
@@ -480,6 +510,10 @@
                 </ItemsControl>
 
                 <views:HistoryPanel Resource="{Binding}" />
+                <StackPanel IsVisible="{Binding Snapshot.SecurityGroups, Converter={StaticResource GroupNames}, ConverterParameter=any}">
+                    <TextBlock Classes="section" Text="Security groups" />
+                    <ContentControl Content="{Binding Snapshot.SecurityGroups, Converter={StaticResource GroupNames}}" ContentTemplate="{StaticResource SecurityGroupChips}" />
+                </StackPanel>
                 <views:CostLine Resource="{Binding}" />
                 <views:UsagePanel Resource="{Binding}" />
                 <TextBlock Classes="section" Text="Alarms" IsVisible="{Binding Alarms.Count, Converter={StaticResource HasItems}}" />
@@ -540,6 +574,8 @@
                     <views:IconButton Content="Open in console" Symbol="Open" Click="OnOpenConsole" Margin="0,0,6,4" />
                     <Button Content="Thresholds…" Click="OnSetThresholds" Margin="0,0,6,4" />
                     <views:HideButton Click="OnToggleHidden" Margin="0,0,6,4" />
+                    <views:AlertCapButton Margin="0,0,6,4" />
+                    <views:ReachButton Margin="0,0,6,4" />
                 </WrapPanel>
                 <TextBlock Text="{Binding ReasonText}" Foreground="#FFFFB86B" TextWrapping="Wrap" Margin="0,0,0,6" IsVisible="{Binding ReasonText, Converter={StaticResource NotEmpty}}" />
 
@@ -595,6 +631,10 @@
                 <StackPanel Orientation="Horizontal" Margin="0,4,0,0"><TextBlock Classes="label" Text="Memory" /><TextBlock Classes="value" Text="{Binding FreeableMemoryText}" /></StackPanel>
 
                 <views:HistoryPanel Resource="{Binding}" />
+                <StackPanel IsVisible="{Binding Snapshot.SecurityGroups, Converter={StaticResource GroupNames}, ConverterParameter=any}">
+                    <TextBlock Classes="section" Text="Security groups" />
+                    <ContentControl Content="{Binding Snapshot.SecurityGroups, Converter={StaticResource GroupNames}}" ContentTemplate="{StaticResource SecurityGroupChips}" />
+                </StackPanel>
                 <views:CostLine Resource="{Binding}" />
                 <views:UsagePanel Resource="{Binding}" />
                 <TextBlock Classes="section" Text="Alarms" IsVisible="{Binding Alarms.Count, Converter={StaticResource HasItems}}" />
@@ -625,6 +665,8 @@
                     <views:IconButton Content="Copy writer host" Symbol="Copy" Click="OnCopyText" Tag="{Binding Snapshot.WriterEndpoint}" Margin="0,0,6,4" />
                     <views:IconButton Content="Open in console" Symbol="Open" Click="OnOpenConsole" Margin="0,0,6,4" />
                     <views:HideButton Click="OnToggleHidden" Margin="0,0,6,4" />
+                    <views:AlertCapButton Margin="0,0,6,4" />
+                    <views:ReachButton Margin="0,0,6,4" />
                 </WrapPanel>
                 <TextBlock Text="{Binding ReasonText}" Foreground="#FFFFB86B" TextWrapping="Wrap" Margin="0,0,0,6" IsVisible="{Binding ReasonText, Converter={StaticResource NotEmpty}}" />
 
@@ -671,6 +713,10 @@
                     </ItemsControl>
                 </StackPanel>
 
+                <StackPanel IsVisible="{Binding Snapshot.SecurityGroups, Converter={StaticResource GroupNames}, ConverterParameter=any}">
+                    <TextBlock Classes="section" Text="Security groups" />
+                    <ContentControl Content="{Binding Snapshot.SecurityGroups, Converter={StaticResource GroupNames}}" ContentTemplate="{StaticResource SecurityGroupChips}" />
+                </StackPanel>
                 <TextBlock Classes="section" Text="Instances" />
                 <ItemsControl ItemsSource="{Binding Snapshot.Members}">
                     <ItemsControl.ItemTemplate>
@@ -714,6 +760,8 @@
                     <views:IconButton Content="Open in console" Symbol="Open" Click="OnOpenConsole" Margin="0,0,6,4" />
                     <Button Content="Thresholds…" Click="OnSetThresholds" Margin="0,0,6,4" />
                     <views:HideButton Click="OnToggleHidden" Margin="0,0,6,4" />
+                    <views:AlertCapButton Margin="0,0,6,4" />
+                    <views:ReachButton Margin="0,0,6,4" />
                 </WrapPanel>
                 <TextBlock Classes="caption" Text="{Binding Snapshot.Description}" TextWrapping="Wrap" Margin="0,0,0,6" IsVisible="{Binding Snapshot.Description, Converter={StaticResource NotEmpty}}" />
                 <TextBlock Text="{Binding ReasonText}" Foreground="#FFFFB86B" TextWrapping="Wrap" Margin="0,0,0,6" IsVisible="{Binding ReasonText, Converter={StaticResource NotEmpty}}" />
@@ -778,6 +826,10 @@
                 </ItemsControl>
 
                 <views:HistoryPanel Resource="{Binding}" />
+                <StackPanel IsVisible="{Binding Snapshot.SecurityGroups, Converter={StaticResource GroupNames}, ConverterParameter=any}">
+                    <TextBlock Classes="section" Text="Security groups" />
+                    <ContentControl Content="{Binding Snapshot.SecurityGroups, Converter={StaticResource GroupNames}}" ContentTemplate="{StaticResource SecurityGroupChips}" />
+                </StackPanel>
                 <views:CostLine Resource="{Binding}" />
                 <views:UsagePanel Resource="{Binding}" />
                 <TextBlock Classes="section" Text="Alarms" IsVisible="{Binding Alarms.Count, Converter={StaticResource HasItems}}" />
@@ -936,6 +988,8 @@
                                IsVisible="{Binding Snapshot.PublicIp, Converter={StaticResource NotEmpty}}" />
                     <Button Content="Thresholds…" Click="OnSetThresholds" Margin="0,0,6,4" />
                     <views:HideButton Click="OnToggleHidden" Margin="0,0,6,4" />
+                    <views:AlertCapButton Margin="0,0,6,4" />
+                    <views:ReachButton Margin="0,0,6,4" />
                 </WrapPanel>
                 <TextBlock Text="{Binding ReasonText}" Foreground="#FFFFB86B" TextWrapping="Wrap" Margin="0,0,0,6" IsVisible="{Binding ReasonText, Converter={StaticResource NotEmpty}}" />
 
@@ -1037,6 +1091,8 @@
                     <views:IconButton Classes="accent" Content="Manage in console" Symbol="Open" Click="OnOpenConsole" Margin="0,0,6,4" />
                     <views:IconButton Content="Copy DNS name" Symbol="Copy" Click="OnCopyText" Tag="{Binding Snapshot.DnsName}" Margin="0,0,6,4" />
                     <views:HideButton Click="OnToggleHidden" Margin="0,0,6,4" />
+                    <views:AlertCapButton Margin="0,0,6,4" />
+                    <views:ReachButton Margin="0,0,6,4" />
                 </WrapPanel>
                 <TextBlock Text="{Binding ReasonText}" Foreground="#FFFFB86B" TextWrapping="Wrap" Margin="0,0,0,6" IsVisible="{Binding ReasonText, Converter={StaticResource NotEmpty}}" />
 
@@ -1075,16 +1131,9 @@
                     </ItemsControl>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="Created" /><TextBlock Classes="value" Text="{Binding Snapshot.Created, Converter={StaticResource LocalTime}, StringFormat='{}{0:g}'}" /></StackPanel>
-                <StackPanel IsVisible="{Binding Snapshot.SecurityGroups.Count, Converter={StaticResource HasItems}}">
+                <StackPanel IsVisible="{Binding Snapshot.SecurityGroups, Converter={StaticResource GroupNames}, ConverterParameter=any}">
                     <TextBlock Classes="section" Text="Security groups" />
-                    <ItemsControl ItemsSource="{Binding Snapshot.SecurityGroups}">
-                        <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Button Content="{Binding}" Padding="6,1" Margin="0,0,6,4" Click="OnOpenSecurityGroup" Tag="{Binding}" ToolTip.Tip="Open this security group on the Network tab" />
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                    <ContentControl Content="{Binding Snapshot.SecurityGroups, Converter={StaticResource GroupNames}}" ContentTemplate="{StaticResource SecurityGroupChips}" />
                 </StackPanel>
 
                 <TextBlock Classes="section" Text="Target groups" />
@@ -1226,6 +1275,192 @@
                 </ItemsControl>
             </StackPanel>
         </DataTemplate>
+
+        <!-- ============ Site-to-Site VPN ============ -->
+        <DataTemplate DataType="models:VpnConnectionStatus">
+            <StackPanel>
+                <StackPanel Orientation="Horizontal">
+                    <Ellipse Classes="dot" Fill="{Binding Level, Converter={StaticResource LevelToBrush}}" Margin="0,0,8,0" />
+                    <TextBlock Text="{Binding Snapshot.Title}" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource TextStrong}" />
+                </StackPanel>
+                <TextBlock Classes="caption" Margin="17,0,0,6" TextWrapping="Wrap">
+                    <TextBlock.Text>
+                        <MultiBinding StringFormat="{}Site-to-Site VPN · {0} · {1} · {2}">
+                            <Binding Path="Snapshot.State" />
+                            <Binding Path="TargetName" />
+                            <Binding Path="RefreshedText" />
+                        </MultiBinding>
+                    </TextBlock.Text>
+                </TextBlock>
+                <WrapPanel Margin="0,0,0,6">
+                    <views:IconButton Content="Refresh" Symbol="ArrowClockwise" Click="OnRefreshResource" Margin="0,0,6,4" ToolTip.Tip="Re-read this VPN connection and its tunnels now" />
+                    <views:IconButton Classes="accent" Content="Open in console" Symbol="Open" Click="OnOpenConsole" Margin="0,0,6,4" />
+                    <views:IconButton Content="Copy ID" Symbol="Copy" Click="OnCopyText" Tag="{Binding Snapshot.Id}" Margin="0,0,6,4" />
+                    <views:HideButton Click="OnToggleHidden" Margin="0,0,6,4" />
+                    <views:AlertCapButton Margin="0,0,6,4" />
+                    <views:ReachButton Margin="0,0,6,4" />
+                </WrapPanel>
+                <TextBlock Text="{Binding ReasonText}" Foreground="#FFFFB86B" TextWrapping="Wrap" Margin="0,0,0,6" IsVisible="{Binding ReasonText, Converter={StaticResource NotEmpty}}" />
+                <ContentControl Content="{Binding}" ContentTemplate="{StaticResource CauseRows}" />
+
+                <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="Customer side" /><TextBlock Classes="value" Text="{Binding Snapshot.CustomerText}" /></StackPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="AWS side" /><TextBlock Classes="value" Text="{Binding Snapshot.GatewayText}" FontFamily="{StaticResource MonoFont}" /></StackPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="Routing" /><TextBlock Classes="value" Text="{Binding Snapshot.RoutingText}" MaxWidth="520" /></StackPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="Type" /><TextBlock Classes="value" Text="{Binding Snapshot.Type}" /></StackPanel>
+                <TextBlock Classes="section" Text="Tunnels" />
+                <ItemsControl ItemsSource="{Binding Snapshot.Tunnels}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Orientation="Horizontal" Margin="0,2">
+                                <Ellipse Classes="dot" Fill="{Binding Level, Converter={StaticResource LevelToBrush}}" Margin="0,0,8,0" />
+                                <TextBlock Classes="body" Text="{Binding Text}" TextWrapping="Wrap" MaxWidth="600" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <views:CostLine Resource="{Binding}" />
+                <TextBlock Classes="section" Text="Alarms" IsVisible="{Binding Alarms.Count, Converter={StaticResource HasItems}}" />
+                <ContentControl Content="{Binding}" ContentTemplate="{StaticResource AlarmRows}" />
+            </StackPanel>
+        </DataTemplate>
+
+        <!-- ============ CodeBuild ============ -->
+        <DataTemplate DataType="models:CodeBuildStatus">
+            <StackPanel>
+                <StackPanel Orientation="Horizontal">
+                    <Ellipse Classes="dot" Fill="{Binding Level, Converter={StaticResource LevelToBrush}}" Margin="0,0,8,0" />
+                    <TextBlock Text="{Binding Snapshot.Name}" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource TextStrong}" />
+                </StackPanel>
+                <TextBlock Classes="caption" Margin="17,0,0,6" TextWrapping="Wrap">
+                    <TextBlock.Text>
+                        <MultiBinding StringFormat="{}CodeBuild project · {0} · {1}">
+                            <Binding Path="TargetName" />
+                            <Binding Path="RefreshedText" />
+                        </MultiBinding>
+                    </TextBlock.Text>
+                </TextBlock>
+                <WrapPanel Margin="0,0,0,6">
+                    <views:IconButton Content="Refresh" Symbol="ArrowClockwise" Click="OnRefreshResource" Margin="0,0,6,4" ToolTip.Tip="Re-read this project's latest builds now" />
+                    <views:IconButton Classes="accent" Content="Open in console" Symbol="Open" Click="OnOpenConsole" Margin="0,0,6,4" />
+                    <views:IconButton Content="Open latest build" Symbol="Open" Click="OnOpenLatestBuild" Margin="0,0,6,4" IsVisible="{Binding Snapshot.LatestBuild, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                      ToolTip.Tip="The build page in the console, with its log" />
+                    <views:HideButton Click="OnToggleHidden" Margin="0,0,6,4" />
+                    <views:AlertCapButton Margin="0,0,6,4" />
+                    <views:ReachButton Margin="0,0,6,4" />
+                </WrapPanel>
+                <TextBlock Text="{Binding ReasonText}" Foreground="#FFFFB86B" TextWrapping="Wrap" Margin="0,0,0,6" IsVisible="{Binding ReasonText, Converter={StaticResource NotEmpty}}" />
+                <ContentControl Content="{Binding}" ContentTemplate="{StaticResource CauseRows}" />
+
+                <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="Latest build" /><TextBlock Classes="value" Text="{Binding Snapshot.LatestBuild.Summary, FallbackValue='no builds'}" MaxWidth="520" /></StackPanel>
+                <StackPanel Orientation="Horizontal" IsVisible="{Binding IsBuilding}"><TextBlock Classes="label" Text="Last finished" /><TextBlock Classes="value" Text="{Binding Snapshot.LastCompleted.Summary, FallbackValue='none yet'}" MaxWidth="520" /></StackPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="Source" /><TextBlock Classes="value" Text="{Binding Snapshot.LatestBuild.ResolvedSourceVersion, FallbackValue=''}" FontFamily="{StaticResource MonoFont}" MaxWidth="520" /></StackPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="Started by" /><TextBlock Classes="value" Text="{Binding Snapshot.LatestBuild.Initiator, FallbackValue=''}" MaxWidth="520" /></StackPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="Log" /><TextBlock Classes="value" Text="{Binding Snapshot.LatestBuild.LogGroup, FallbackValue=''}" FontFamily="{StaticResource MonoFont}" MaxWidth="520" /></StackPanel>
+                <views:BuildHistoryPanel Resource="{Binding}" />
+                <TextBlock Classes="caption" TextWrapping="Wrap" Text="Skypeek only watches builds; start or retry them in the AWS console." />
+                <TextBlock Classes="section" Text="Alarms" IsVisible="{Binding Alarms.Count, Converter={StaticResource HasItems}}" />
+                <ContentControl Content="{Binding}" ContentTemplate="{StaticResource AlarmRows}" />
+            </StackPanel>
+        </DataTemplate>
+
+        <!-- ============ CloudFormation ============ -->
+        <DataTemplate DataType="models:StackStatus">
+            <StackPanel>
+                <StackPanel Orientation="Horizontal">
+                    <Ellipse Classes="dot" Fill="{Binding Level, Converter={StaticResource LevelToBrush}}" Margin="0,0,8,0" />
+                    <TextBlock Text="{Binding Snapshot.Name}" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource TextStrong}" />
+                </StackPanel>
+                <TextBlock Classes="caption" Margin="17,0,0,6" TextWrapping="Wrap">
+                    <TextBlock.Text>
+                        <MultiBinding StringFormat="{}CloudFormation stack · {0} · {1} · {2}">
+                            <Binding Path="Snapshot.Status" />
+                            <Binding Path="TargetName" />
+                            <Binding Path="RefreshedText" />
+                        </MultiBinding>
+                    </TextBlock.Text>
+                </TextBlock>
+                <WrapPanel Margin="0,0,0,6">
+                    <views:IconButton Content="Refresh" Symbol="ArrowClockwise" Click="OnRefreshResource" Margin="0,0,6,4" ToolTip.Tip="Re-read this stack now" />
+                    <views:IconButton Classes="accent" Content="Open in console" Symbol="Open" Click="OnOpenConsole" Margin="0,0,6,4" />
+                    <views:IconButton Content="Copy stack ID" Symbol="Copy" Click="OnCopyText" Tag="{Binding Snapshot.Id}" Margin="0,0,6,4" />
+                    <views:HideButton Click="OnToggleHidden" Margin="0,0,6,4" />
+                    <views:AlertCapButton Margin="0,0,6,4" />
+                    <views:ReachButton Margin="0,0,6,4" />
+                </WrapPanel>
+                <TextBlock Text="{Binding ReasonText}" Foreground="#FFFFB86B" TextWrapping="Wrap" Margin="0,0,0,6" IsVisible="{Binding ReasonText, Converter={StaticResource NotEmpty}}" />
+                <ContentControl Content="{Binding}" ContentTemplate="{StaticResource CauseRows}" />
+
+                <StackPanel Orientation="Horizontal" IsVisible="{Binding Snapshot.Description, Converter={StaticResource NotEmpty}}">
+                    <TextBlock Classes="label" Text="Description" /><TextBlock Classes="value" Text="{Binding Snapshot.Description}" MaxWidth="520" /></StackPanel>
+                <StackPanel Orientation="Horizontal" IsVisible="{Binding Snapshot.StatusReason, Converter={StaticResource NotEmpty}}">
+                    <TextBlock Classes="label" Text="Status reason" /><TextBlock Classes="value" Text="{Binding Snapshot.StatusReason}" MaxWidth="520" /></StackPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="Created" /><TextBlock Classes="value" Text="{Binding Snapshot.Created, Converter={StaticResource LocalTime}, StringFormat='{}{0:g}'}" /></StackPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="Updated" /><TextBlock Classes="value" Text="{Binding Snapshot.LastUpdated, Converter={StaticResource LocalTime}, StringFormat='{}{0:g}'}" /></StackPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="Drift" /><TextBlock Classes="value" Text="{Binding Snapshot.DriftText}" /></StackPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="Protection" />
+                    <TextBlock Classes="value" Text="{Binding Snapshot.TerminationProtection, Converter={StaticResource ProtectionText}}" /></StackPanel>
+                <StackPanel IsVisible="{Binding Snapshot.Outputs.Count, Converter={StaticResource HasItems}}">
+                    <TextBlock Classes="section" Text="Outputs" />
+                    <ItemsControl ItemsSource="{Binding Snapshot.Outputs}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Classes="body" Text="{Binding Text}" TextWrapping="Wrap" FontFamily="{StaticResource MonoFont}" FontSize="11" Margin="0,1" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+                <views:StackHistoryPanel Resource="{Binding}" />
+                <TextBlock Classes="caption" TextWrapping="Wrap" Text="Skypeek only watches stacks; update, roll back or delete them in the AWS console. Drift is shown as last detected there." />
+            </StackPanel>
+        </DataTemplate>
+
+        <!-- ============ Redshift ============ -->
+        <DataTemplate DataType="models:RedshiftStatus">
+            <StackPanel>
+                <StackPanel Orientation="Horizontal">
+                    <Ellipse Classes="dot" Fill="{Binding Level, Converter={StaticResource LevelToBrush}}" Margin="0,0,8,0" />
+                    <TextBlock Text="{Binding Snapshot.Id}" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource TextStrong}" />
+                </StackPanel>
+                <TextBlock Classes="caption" Margin="17,0,0,6" TextWrapping="Wrap">
+                    <TextBlock.Text>
+                        <MultiBinding StringFormat="{}Redshift · {0} · {1} · {2} · {3}">
+                            <Binding Path="Snapshot.SizeText" />
+                            <Binding Path="Snapshot.Status" />
+                            <Binding Path="TargetName" />
+                            <Binding Path="RefreshedText" />
+                        </MultiBinding>
+                    </TextBlock.Text>
+                </TextBlock>
+                <WrapPanel Margin="0,0,0,6">
+                    <views:IconButton Content="Refresh" Symbol="ArrowClockwise" Click="OnRefreshResource" Margin="0,0,6,4" />
+                    <views:IconButton Classes="accent" Content="Open in console" Symbol="Open" Click="OnOpenConsole" Margin="0,0,6,4" />
+                    <views:IconButton Content="Copy endpoint" Symbol="Copy" Click="OnCopyText" Tag="{Binding Snapshot.EndpointText}" Margin="0,0,6,4" />
+                    <views:IconButton Content="Thresholds…" Symbol="Gauge" Click="OnSetThresholds" Margin="0,0,6,4" />
+                    <views:HideButton Click="OnToggleHidden" Margin="0,0,6,4" />
+                    <views:AlertCapButton Margin="0,0,6,4" />
+                    <views:ReachButton Margin="0,0,6,4" />
+                </WrapPanel>
+                <TextBlock Text="{Binding ReasonText}" Foreground="#FFFFB86B" TextWrapping="Wrap" Margin="0,0,0,6" IsVisible="{Binding ReasonText, Converter={StaticResource NotEmpty}}" />
+                <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="Endpoint" /><TextBlock Classes="value" Text="{Binding Snapshot.EndpointText}" FontFamily="{StaticResource MonoFont}" MaxWidth="520" /></StackPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="Database" /><TextBlock Classes="value" Text="{Binding Snapshot.DatabaseName}" /></StackPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="Load" /><TextBlock Classes="value" Text="{Binding CpuDisplay, StringFormat='CPU {0}'}" /></StackPanel>
+                <StackPanel Orientation="Horizontal" IsVisible="{Binding DiskUsedPercent, Converter={x:Static ObjectConverters.IsNotNull}}">
+                    <TextBlock Classes="label" Text="Disk used" /><TextBlock Classes="value" Text="{Binding DiskUsedPercent, StringFormat='{}{0:0}%'}" /></StackPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="VPC" /><TextBlock Classes="value" Text="{Binding Snapshot.VpcId}" FontFamily="{StaticResource MonoFont}" /></StackPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="Network" /><TextBlock Classes="value" Text="{Binding Snapshot.PubliclyAccessible, Converter={StaticResource PublicText}}" /></StackPanel>
+                <StackPanel Orientation="Horizontal" IsVisible="{Binding Snapshot.Namespace, Converter={StaticResource NotEmpty}}">
+                    <TextBlock Classes="label" Text="Namespace" /><TextBlock Classes="value" Text="{Binding Snapshot.Namespace}" /></StackPanel>
+                <StackPanel Orientation="Horizontal" IsVisible="{Binding Snapshot.MaintenanceWindow, Converter={StaticResource NotEmpty}}">
+                    <TextBlock Classes="label" Text="Maintenance" /><TextBlock Classes="value" Text="{Binding Snapshot.MaintenanceWindow}" /></StackPanel>
+                <StackPanel IsVisible="{Binding Snapshot.SecurityGroups, Converter={StaticResource GroupNames}, ConverterParameter=any}">
+                    <TextBlock Classes="section" Text="Security groups" />
+                    <ContentControl Content="{Binding Snapshot.SecurityGroups, Converter={StaticResource GroupNames}}" ContentTemplate="{StaticResource SecurityGroupChips}" />
+                </StackPanel>
+                <views:CostLine Resource="{Binding}" />
+                <TextBlock Classes="section" Text="Alarms" IsVisible="{Binding Alarms.Count, Converter={StaticResource HasItems}}" />
+                <ContentControl Content="{Binding}" ContentTemplate="{StaticResource AlarmRows}" />
+            </StackPanel>
+        </DataTemplate>
     </UserControl.DataTemplates>
 
     <Grid Margin="0,8,0,0">
@@ -1239,7 +1474,7 @@
             <views:IconButton Symbol="HeartPulse" Content="Refresh health" Click="OnRefreshHealth" Margin="0,0,6,4" />
             <views:IconButton Symbol="DataLine" Content="Refresh metrics &amp; alarms" Click="OnRefreshMetrics" Margin="0,0,6,4" />
             <views:IconButton Symbol="ArrowSync" Content="Refresh lists" Click="OnRefreshCatalogs" Margin="0,0,14,4" />
-            <TextBox x:Name="SearchBox" Width="280" Margin="0,0,10,4" PlaceholderText="Search (Ctrl+F): name, id, IP, endpoint, image…"
+            <TextBox x:Name="SearchBox" Width="280" Margin="0,0,10,4" views:SearchBoxClear.Enabled="True" PlaceholderText="Search (Ctrl+F): name, id, IP, endpoint, image…"
                         TextChanged="OnSearchChanged" KeyDown="OnSearchKeyDown" />
             <CheckBox x:Name="ProblemsOnly" Content="Problems only" IsCheckedChanged="OnFilterChanged" Margin="0,0,10,4" />
             <CheckBox x:Name="GroupByApp" Content="EB by application" IsCheckedChanged="OnGroupByAppChanged" Margin="0,0,10,4"
@@ -1284,6 +1519,14 @@
                                     <TextBlock Classes="title" Classes.strong="{Binding IsStrong}" Classes.match="{Binding IsMatch}" Text="{Binding Title}" FontSize="12" VerticalAlignment="Center" />
                                     <Border Classes="badge" Margin="6,0,0,0" Background="#AAE8464A" IsVisible="{Binding Badge, Converter={StaticResource NotEmpty}}">
                                         <TextBlock Text="{Binding Badge}" FontSize="10" Foreground="{StaticResource TextStrong}" />
+                                    </Border>
+                                    <StackPanel Orientation="Horizontal" Margin="8,0,0,0" IsVisible="{Binding IsBusy}" VerticalAlignment="Center">
+                                        <ProgressBar IsIndeterminate="True" Width="36" MinWidth="36" Height="3" MinHeight="3" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                        <TextBlock Classes="caption" Text="{Binding Activity}" FontSize="10" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                    <Border Classes="badge" Margin="6,0,0,0" IsVisible="{Binding CapBadge, Converter={StaticResource NotEmpty}}"
+                                            ToolTip.Tip="Alert level capped (dashboard details: Alerts; Settings → Accounts &amp; regions for a whole target)">
+                                        <TextBlock Text="{Binding CapBadge}" FontSize="10" Foreground="{StaticResource TextMuted}" />
                                     </Border>
                                 </StackPanel>
                                 <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="10,0,0,0" VerticalAlignment="Center">

@@ -20,6 +20,10 @@ public sealed class ServiceEvent
 
 public sealed class RdsInstanceSnapshot
 {
+    /// <summary>VPC security groups (names filled in from the Network tab data when shown).</summary>
+    public List<SecurityGroupRef> SecurityGroups { get; init; } = [];
+    public string? VpcId { get; init; }
+    public List<string> SubnetIds { get; init; } = [];
     public string Identifier { get; init; } = "";
     public string? Arn { get; init; }
     public string? ClusterIdentifier { get; init; }
@@ -95,6 +99,10 @@ public sealed record RdsClusterMember(string InstanceId, bool IsWriter);
 
 public sealed class RdsClusterSnapshot
 {
+    /// <summary>VPC security groups (names filled in from the Network tab data when shown).</summary>
+    public List<SecurityGroupRef> SecurityGroups { get; init; } = [];
+    public string? VpcId { get; init; }
+    public List<string> SubnetIds { get; init; } = [];
     public string Identifier { get; init; } = "";
     public string? Arn { get; init; }
     public string Engine { get; init; } = "";
@@ -220,6 +228,10 @@ public sealed class CacheShard
 
 public sealed class CacheSnapshot
 {
+    /// <summary>VPC security groups (names filled in from the Network tab data when shown).</summary>
+    public List<SecurityGroupRef> SecurityGroups { get; init; } = [];
+    public string? VpcId { get; init; }
+    public List<string> SubnetIds { get; init; } = [];
     public string Id { get; init; } = "";
     public CacheKind Kind { get; init; }
     public string? Arn { get; init; }

@@ -10,6 +10,10 @@ using Rds = Amazon.RDS.Model;
 using Eb = Amazon.ElasticBeanstalk.Model;
 using Elb = Amazon.ElasticLoadBalancingV2.Model;
 using Ce = Amazon.CostExplorer.Model;
+using Cb = Amazon.CodeBuild.Model;
+using Cfn = Amazon.CloudFormation.Model;
+using Rs = Amazon.Redshift.Model;
+using Rss = Amazon.RedshiftServerless.Model;
 using Pricing = Amazon.Pricing.Model;
 using Secrets = Amazon.SecretsManager.Model;
 using Ssm = Amazon.SimpleSystemsManagement.Model;
@@ -63,6 +67,24 @@ public static class ReadOnlyGuard
         typeof(Ec2.DescribeNatGatewaysRequest),
         typeof(Ec2.DescribeVpcEndpointsRequest),
         typeof(Ec2.DescribeVpcPeeringConnectionsRequest),
+        typeof(Ec2.DescribeVpnConnectionsRequest),
+        typeof(Ec2.DescribeNetworkAclsRequest),
+        typeof(Ec2.DescribeManagedPrefixListsRequest),
+        typeof(Ec2.GetManagedPrefixListEntriesRequest),
+        typeof(Ec2.DescribeNetworkInsightsAnalysesRequest), // polls a Reachability Analyzer check the user started
+        typeof(Ec2.DescribeCustomerGatewaysRequest),
+
+        typeof(Cb.ListProjectsRequest),
+        typeof(Cb.ListBuildsRequest),
+        typeof(Cb.ListBuildsForProjectRequest),
+        typeof(Cb.BatchGetBuildsRequest),                    // reads build details by id
+
+        typeof(Cfn.DescribeStacksRequest),
+        typeof(Cfn.DescribeStackEventsRequest),
+
+        typeof(Rs.DescribeClustersRequest),
+        typeof(Rss.ListWorkgroupsRequest),
+        typeof(Rss.GetWorkgroupRequest),
 
         typeof(Pricing.GetProductsRequest),                  // public list prices
         typeof(Ce.GetCostAndUsageRequest),                   // billed cost ($0.01 per request)
@@ -122,6 +144,16 @@ public static class ReadOnlyGuard
         typeof(Ec2.RevokeSecurityGroupIngressRequest),    // delete one inbound rule by id
         typeof(Ec2.RevokeSecurityGroupEgressRequest),     // delete one outbound rule by id
         typeof(Ec2.ModifySecurityGroupRulesRequest),      // change one rule in place
+        typeof(Ec2.CreateNetworkInsightsPathRequest),     // Reachability Analyzer: the path to check ($0.10 per analysis)
+        typeof(Ec2.StartNetworkInsightsAnalysisRequest),  // … run the check
+        typeof(Ec2.DeleteNetworkInsightsAnalysisRequest), // … and remove what it created
+        typeof(Ec2.DeleteNetworkInsightsPathRequest),
+        typeof(Secrets.PutSecretValueRequest),            // new value of one secret (a new version)
+        typeof(Secrets.CreateSecretRequest),              // one new secret (no tags, replicas or policies)
+        typeof(Secrets.DeleteSecretRequest),              // schedule one secret for deletion (7–30 day recovery window)
+        typeof(Secrets.RestoreSecretRequest),             // cancel that
+        typeof(Ssm.PutParameterRequest),                  // create or overwrite one parameter (no tags, policies or patterns)
+        typeof(Ssm.DeleteParameterRequest),               // delete one parameter
     };
 
     /// <summary>The only UpdateService fields the app sets; anything else would change the service's configuration.</summary>
@@ -149,6 +181,12 @@ public static class ReadOnlyGuard
                 _ => false,
             });
 
+    private static readonly HashSet<string> PutSecretFields = ["SecretId", "SecretString", "SecretBinary", "ClientRequestToken"];
+    private static readonly HashSet<string> CreateSecretFields = ["Name", "SecretString", "SecretBinary", "Description", "KmsKeyId", "ClientRequestToken"];
+    private static readonly HashSet<string> DeleteSecretFields = ["SecretId", "RecoveryWindowInDays"];
+    private static readonly HashSet<string> PutParameterFields = ["Name", "Value", "Overwrite", "Type", "KeyId", "Tier", "Description", "DataType"];
+    private static readonly HashSet<string> InsightsPathFields = ["Source", "Destination", "SourceIp", "DestinationIp", "DestinationPort", "Protocol", "ClientToken"];
+    private static readonly HashSet<string> InsightsStartFields = ["NetworkInsightsPathId", "ClientToken"];
     private static readonly HashSet<string> InstanceActionFields = ["InstanceIds"];
     private static readonly HashSet<string> RuleGroupFields = ["GroupId", "IpPermissions"];
     private static readonly HashSet<string> RevokeFields = ["GroupId", "SecurityGroupRuleIds"];
@@ -190,6 +228,26 @@ public static class ReadOnlyGuard
         Ec2.RebootInstancesRequest r when r.InstanceIds is not { Count: 1 } => "RebootInstances must target exactly one instance",
         Ec2.TerminateInstancesRequest r when r.InstanceIds is not { Count: 1 } => "TerminateInstances must target exactly one instance",
         Ecs.UpdateServiceRequest r when !OnlyForcesNewDeployment(r) => "UpdateService may only force a new deployment of one service",
+        Secrets.PutSecretValueRequest r when string.IsNullOrEmpty(r.SecretId) || (r.SecretString is null) == (r.SecretBinary is null) || !OnlySetFields(r, PutSecretFields)
+            => "PutSecretValue may only set one new value of one secret (no version stages)",
+        Secrets.CreateSecretRequest r when string.IsNullOrEmpty(r.Name) || (r.SecretString is null) == (r.SecretBinary is null) || !OnlySetFields(r, CreateSecretFields)
+            => "CreateSecret may only set the name, value, description and key (no tags, replicas or policies)",
+        Secrets.DeleteSecretRequest r when string.IsNullOrEmpty(r.SecretId) || r.RecoveryWindowInDays is not (>= 7 and <= 30) || !OnlySetFields(r, DeleteSecretFields)
+            => "DeleteSecret must keep a 7 to 30 day recovery window (never ForceDeleteWithoutRecovery)",
+        Secrets.RestoreSecretRequest r when string.IsNullOrEmpty(r.SecretId) || !OnlySetFields(r, new HashSet<string> { "SecretId" })
+            => "RestoreSecret must name one secret",
+        Ssm.PutParameterRequest r when string.IsNullOrEmpty(r.Name) || r.Value is null || !OnlySetFields(r, PutParameterFields)
+            => "PutParameter may only set the name, value, type, key, tier and description (no tags, policies or allowed pattern)",
+        Ssm.DeleteParameterRequest r when string.IsNullOrEmpty(r.Name) || !OnlySetFields(r, new HashSet<string> { "Name" })
+            => "DeleteParameter must name one parameter",
+        Ec2.CreateNetworkInsightsPathRequest r when string.IsNullOrEmpty(r.Source) || !OnlySetFields(r, InsightsPathFields)
+            => "CreateNetworkInsightsPath may only name the source, destination, protocol and port (no tags or filters)",
+        Ec2.StartNetworkInsightsAnalysisRequest r when string.IsNullOrEmpty(r.NetworkInsightsPathId) || !OnlySetFields(r, InsightsStartFields)
+            => "StartNetworkInsightsAnalysis may only start one path's analysis (no other accounts, filters or tags)",
+        Ec2.DeleteNetworkInsightsAnalysisRequest r when string.IsNullOrEmpty(r.NetworkInsightsAnalysisId) || !OnlySetFields(r, new HashSet<string> { "NetworkInsightsAnalysisId" })
+            => "DeleteNetworkInsightsAnalysis must name one analysis",
+        Ec2.DeleteNetworkInsightsPathRequest r when string.IsNullOrEmpty(r.NetworkInsightsPathId) || !OnlySetFields(r, new HashSet<string> { "NetworkInsightsPathId" })
+            => "DeleteNetworkInsightsPath must name one path",
         Ec2.StartInstancesRequest r when r.InstanceIds is not { Count: 1 } || !OnlySetFields(r, InstanceActionFields)
             => "StartInstances must target exactly one instance",
         Ec2.StopInstancesRequest r when r.InstanceIds is not { Count: 1 } || !OnlySetFields(r, InstanceActionFields)
@@ -229,6 +287,10 @@ public static class ReadOnlyGuard
         "Amazon.ElasticLoadBalancingV2.Model" => "elasticloadbalancing",
         "Amazon.Pricing.Model" => "pricing",
         "Amazon.CostExplorer.Model" => "ce",
+        "Amazon.CodeBuild.Model" => "codebuild",
+        "Amazon.CloudFormation.Model" => "cloudformation",
+        "Amazon.Redshift.Model" => "redshift",
+        "Amazon.RedshiftServerless.Model" => "redshift-serverless",
         { } ns => ns,
         null => "unknown",
     };

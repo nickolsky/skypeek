@@ -44,6 +44,49 @@ public class NetworkRulesTests
         Assert.False(NetworkRules.Contains("10.0.0.0/16", "10.1.0.1"));
         Assert.True(NetworkRules.Contains("0.0.0.0/0", "203.0.113.5"));
         Assert.False(NetworkRules.Contains("10.0.0.0/16", "2001:db8::1"));
+        // A wider network is not inside a narrower one, whatever its first address.
+        Assert.False(NetworkRules.Contains("10.0.0.0/16", "10.0.0.0/8"));
+        Assert.True(NetworkRules.Contains("10.0.0.0/8", "10.0.0.0/16"));
+        // Invalid prefixes are rejected instead of reading past the address.
+        Assert.False(NetworkRules.Contains("10.0.0.0/40", "10.0.0.1"));
+        Assert.False(NetworkRules.Contains("garbage", "10.0.0.1"));
+    }
+
+    [Fact]
+    public void Ip_networks_parse_and_compare()
+    {
+        Assert.Equal("10.1.0.0/16", IpNet.Parse("10.1.2.3/16").ToString());
+        Assert.True(IpNet.Parse("10.1.2.3")!.Value.IsSingleAddress);
+        Assert.Null(IpNet.Parse("10.1"));
+        Assert.Null(IpNet.Parse("10.0.0.0/33"));
+        Assert.Null(IpNet.Parse("2001:db8::/129"));
+        Assert.Null(IpNet.Parse("sg-0123"));
+        var wide = IpNet.Parse("10.0.0.0/8")!.Value;
+        var narrow = IpNet.Parse("10.20.0.0/16")!.Value;
+        Assert.True(wide.Overlaps(narrow) && narrow.Overlaps(wide));
+        Assert.False(IpNet.Parse("10.0.0.0/16")!.Value.Overlaps(IpNet.Parse("10.1.0.0/16")!.Value));
+        Assert.True(IpNet.Parse("0.0.0.0/0")!.Value.Contains(narrow));
+        Assert.True(IpNet.Parse("2001:db8::/32")!.Value.Contains(IpNet.Parse("2001:db8:1::5")!.Value));
+        Assert.False(IpNet.Parse("0.0.0.0/0")!.Value.Contains(IpNet.Parse("::1")!.Value));
+    }
+
+    [Fact]
+    public void Snapshot_copy_keeps_every_part()
+    {
+        var original = new NetworkSnapshot
+        {
+            TargetId = 7,
+            RouteTables = [new RouteTableInfo { Id = "rtb-1" }],
+            Peerings = [new PeeringInfo { Id = "pcx-1" }],
+            SecurityGroups = [new SecurityGroupInfo { Id = "sg-1" }],
+        };
+        var copy = original.Copy();
+        copy.SecurityGroups = [];
+        Assert.Equal(7, copy.TargetId);
+        Assert.Single(copy.RouteTables);
+        Assert.Single(copy.Peerings);
+        Assert.Single(original.SecurityGroups);
+        Assert.NotSame(original.RouteTables, copy.RouteTables);
     }
 
     [Theory]
@@ -281,5 +324,60 @@ public class NetworkRulesTests
         Assert.True(HealthRules.IsRelevantAlarm(alarm));
         Assert.True(HealthRules.AlarmMatchesEc2(alarm, new Ec2InstanceSnapshot { InstanceId = "i-1" }));
         Assert.True(HealthRules.IsRelevantAlarm(new AlarmInfo { Name = "b", Namespace = "AWS/ApplicationELB", MetricName = "HTTPCode_ELB_5XX_Count" }));
+    }
+}
+
+public class NetworkSearchTests
+{
+    private static SecurityGroupRuleInfo Rule(string group, string? cidr = null, string? refGroup = null, int port = 5432, bool egress = false) => new()
+    {
+        RuleId = $"sgr-{group}-{cidr ?? refGroup}", GroupId = group, Protocol = "tcp", FromPort = port, ToPort = port, CidrIpv4 = cidr, ReferencedGroupId = refGroup, IsEgress = egress,
+    };
+
+    private static NetworkSnapshot Sample() => new()
+    {
+        TargetId = 1,
+        Interfaces =
+        [
+            new NetworkInterfaceInfo { Id = "eni-app", PrivateIp = "10.0.4.2", PrivateIps = ["10.0.4.2"], SubnetId = "subnet-a", SecurityGroups = [new("sg-app", "app")], InstanceId = "i-app" },
+            new NetworkInterfaceInfo { Id = "eni-db", PrivateIp = "10.0.9.7", PrivateIps = ["10.0.9.7"], SubnetId = "subnet-b", SecurityGroups = [new("sg-db", "db")], Description = "RDSNetworkInterface" },
+        ],
+        SecurityGroups =
+        [
+            new SecurityGroupInfo { Id = "sg-app", Name = "app", Rules = [Rule("sg-app", "0.0.0.0/0", port: 443)] },
+            new SecurityGroupInfo { Id = "sg-db", Name = "db", Rules = [Rule("sg-db", refGroup: "sg-app"), Rule("sg-db", "10.0.0.0/16"), Rule("sg-db", "192.168.0.0/24")] },
+            new SecurityGroupInfo { Id = "sg-ops", Name = "ops", Rules = [Rule("sg-ops", "10.0.4.0/24", port: 22)] },
+        ],
+    };
+
+    [Fact]
+    public void Address_search_finds_its_interface_groups_and_every_rule_that_covers_it()
+    {
+        var result = NetworkSearch.Search([Sample()], NetworkQuery.Parse("10.0.4.2")!, includeWorld: false);
+        Assert.Equal(["eni-app"], result.Interfaces.Select(i => i.Interface.Id));
+        Assert.Equal(["sg-app"], result.Groups.Select(g => g.Group.Id));
+        // By CIDR (10.0.0.0/16, 10.0.4.0/24) and by group reference (sg-db allows sg-app, which 10.0.4.2 is in).
+        Assert.Equal(3, result.Rules.Count);
+        Assert.Contains(result.Rules, r => r.Group.Id == "sg-db" && r.Rule.ReferencedGroupId == "sg-app" && r.Why.Contains("is in sg-app"));
+        Assert.Contains(result.Rules, r => r.Group.Id == "sg-ops" && r.Why == "10.0.4.0/24 includes 10.0.4.2");
+        Assert.DoesNotContain(result.Rules, r => r.Rule.CidrIpv4 == "192.168.0.0/24");
+        Assert.Equal(1, result.WorldRules);
+        Assert.Equal(4, NetworkSearch.Search([Sample()], NetworkQuery.Parse("10.0.4.2")!, includeWorld: true).Rules.Count);
+    }
+
+    [Fact]
+    public void Range_and_group_searches()
+    {
+        var range = NetworkSearch.Search([Sample()], NetworkQuery.Parse("10.0.0.0/8")!, includeWorld: false);
+        Assert.Equal(2, range.Interfaces.Count);
+        Assert.Contains(range.Rules, r => r.Rule.CidrIpv4 == "10.0.0.0/16" && r.Why.Contains("is part of"));
+
+        var group = NetworkSearch.Search([Sample()], NetworkQuery.Parse("sg-app")!, includeWorld: false);
+        Assert.Equal(["sg-app"], group.Groups.Select(g => g.Group.Id));
+        Assert.Equal(["eni-app"], group.Interfaces.Select(i => i.Interface.Id));
+        Assert.Single(group.Rules, r => r.Group.Id == "sg-db");
+
+        Assert.Null(NetworkQuery.Parse("orders"));
+        Assert.Null(NetworkQuery.Parse("sg-"));
     }
 }

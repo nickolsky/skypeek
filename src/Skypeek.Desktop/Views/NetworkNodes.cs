@@ -57,9 +57,20 @@ public sealed record RuleRow(SecurityGroupRuleInfo Rule, string? SourceName)
     public bool IsGroupSource => Rule.SourceKind == RuleSourceKind.SecurityGroup;
 }
 
-public sealed record SecurityGroupDetail(Target Target, SecurityGroupInfo Group, IReadOnlyList<RuleRow> Inbound, IReadOnlyList<RuleRow> Outbound,
-    IReadOnlyList<NetworkInterfaceInfo> UsedBy, IReadOnlyList<SecurityGroupInfo> ReferencedBy, bool CanEdit, DateTime DownloadedUtc)
+/// <summary>A dashboard resource that uses a security group (click: show it on the dashboard).</summary>
+public sealed record ResourceUse(string Name, string Kind, string ResourceKey)
 {
+    public string Text => $"{Name} · {Kind}";
+}
+
+/// <summary>One line of the Network tab's IP / security group search results; <see cref="Key"/> selects its tree node.</summary>
+public sealed record SearchRow(string Title, string Detail, string? Key, HealthLevel Level = HealthLevel.Ok);
+
+public sealed record SecurityGroupDetail(Target Target, SecurityGroupInfo Group, IReadOnlyList<RuleRow> Inbound, IReadOnlyList<RuleRow> Outbound,
+    IReadOnlyList<NetworkInterfaceInfo> UsedBy, IReadOnlyList<SecurityGroupInfo> ReferencedBy, bool CanEdit, DateTime DownloadedUtc,
+    IReadOnlyList<ResourceUse>? Resources = null)
+{
+    public IReadOnlyList<ResourceUse> ResourceList => Resources ?? [];
     public string ConsoleUrl => Group.ConsoleUrl(Target.Region);
     public string Summary => $"Security group · {Group.VpcId} · {Target.DisplayName} · downloaded {DownloadedUtc.ToLocalTime():g}";
     public string UsedByText => UsedBy.Count == 0 ? "No network interface uses this group." : $"{UsedBy.Count} network interface(s) use this group:";
@@ -73,6 +84,19 @@ public static class NetworkTreeBuilder
     public static List<DashNode> Build(AppSession session)
     {
         var roots = new List<DashNode>();
+        // Which dashboard resources use each security group (RDS, caches, load balancers, services, …).
+        var uses = new Dictionary<string, List<ResourceUse>>();
+        foreach (var health in session.Health.Snapshot())
+        {
+            var network = session.Network.Get(health.TargetId);
+            foreach (var r in health.AllResources)
+                foreach (var id in ResourceNetwork.SecurityGroupIds(r, network))
+                {
+                    if (!uses.TryGetValue(id, out var list))
+                        uses[id] = list = [];
+                    list.Add(new ResourceUse(r.DisplayName, ResourceNetwork.KindName(r), r.ResourceKey));
+                }
+        }
         foreach (var target in session.Settings.Targets.Where(t => t.NetworkEnabled).OrderBy(t => t.DisplayName, StringComparer.OrdinalIgnoreCase))
         {
             var snapshot = session.Network.Get(target.Id);
@@ -91,13 +115,13 @@ public static class NetworkTreeBuilder
                 Payload = new NetworkTargetDetail(target, snapshot, status),
             };
             if (snapshot is not null)
-                AddVpcs(root, target, snapshot, session.Costs.UnitPrice(target, CostRules.NatKey));
+                AddVpcs(root, target, snapshot, session.Costs.UnitPrice(target, CostRules.NatKey), uses);
             roots.Add(root);
         }
         return roots;
     }
 
-    private static void AddVpcs(DashNode root, Target target, NetworkSnapshot s, double? natHourly)
+    private static void AddVpcs(DashNode root, Target target, NetworkSnapshot s, double? natHourly, Dictionary<string, List<ResourceUse>> uses)
     {
         var canEdit = target.ElevatedProfileName is { Length: > 0 };
         var groupsById = s.SecurityGroups.ToDictionary(g => g.Id);
@@ -167,7 +191,7 @@ public static class NetworkTreeBuilder
                 Payload = new MessageDetail("Security groups of this VPC with their inbound and outbound rules. Select one to see, add, change or delete rules."),
             };
             foreach (var group in groups.OrderBy(g => g.Name, StringComparer.OrdinalIgnoreCase))
-                sgGroup.Children.Add(GroupNode(target, group, s, groupsById, canEdit));
+                sgGroup.Children.Add(GroupNode(target, group, s, groupsById, canEdit, uses));
             vpcNode.Children.Add(sgGroup);
             root.Children.Add(vpcNode);
         }
@@ -178,7 +202,7 @@ public static class NetworkTreeBuilder
         {
             var other = new DashNode { Key = $"{target.Id}:sgs:other", Kind = NodeKind.Group, Title = "Other security groups", Right = $"{orphanGroups.Count}", Payload = new MessageDetail("Security groups whose VPC is not listed.") };
             foreach (var group in orphanGroups)
-                other.Children.Add(GroupNode(target, group, s, groupsById, canEdit));
+                other.Children.Add(GroupNode(target, group, s, groupsById, canEdit, uses));
             root.Children.Add(other);
         }
 
@@ -282,7 +306,8 @@ public static class NetworkTreeBuilder
         Payload = new InterfaceDetail(target, eni, subnet, eip),
     };
 
-    private static DashNode GroupNode(Target target, SecurityGroupInfo group, NetworkSnapshot s, Dictionary<string, SecurityGroupInfo> groupsById, bool canEdit)
+    private static DashNode GroupNode(Target target, SecurityGroupInfo group, NetworkSnapshot s, Dictionary<string, SecurityGroupInfo> groupsById, bool canEdit,
+        Dictionary<string, List<ResourceUse>> uses)
     {
         RuleRow Row(SecurityGroupRuleInfo rule) => new(rule, rule.ReferencedGroupId is { } id && groupsById.TryGetValue(id, out var g) ? g.Name : null);
         var usedBy = s.Interfaces.Where(i => i.SecurityGroups.Any(x => x.Id == group.Id)).OrderBy(i => i.Owner).ToList();
@@ -296,11 +321,14 @@ public static class NetworkTreeBuilder
             Subtitle = $"{group.Id} · {group.Inbound.Count()} in / {group.Outbound.Count()} out · used by {usedBy.Count}{(open > 0 ? $" · {open} open to the internet" : "")}",
             SearchText = $"{group.Description} {string.Join(' ', group.Rules.Select(r => $"{r.Source} {r.PortText} {r.Description}"))}",
             Level = open > 0 && group.Inbound.Any(r => r.IsOpenToWorld && r.Protocol == "-1") ? HealthLevel.Warn : HealthLevel.Ok,
-            Payload = new SecurityGroupDetail(target, group, group.Inbound.Select(Row).ToList(), group.Outbound.Select(Row).ToList(), usedBy, referencedBy, canEdit, s.DownloadedUtc),
+            Payload = new SecurityGroupDetail(target, group, group.Inbound.Select(Row).ToList(), group.Outbound.Select(Row).ToList(), usedBy, referencedBy, canEdit, s.DownloadedUtc,
+                uses.GetValueOrDefault(group.Id)?.DistinctBy(u => u.ResourceKey).OrderBy(u => u.Kind).ThenBy(u => u.Name).ToList()),
         };
     }
 
     public static string SecurityGroupKey(long targetId, string groupId) => $"{targetId}:sg:{groupId}";
+
+    public static string InterfaceKey(long targetId, string interfaceId) => $"{targetId}:eni:{interfaceId}";
 
     /// <summary>Numeric order for IPv4 addresses (10.0.0.9 before 10.0.0.10).</summary>
     private static string IpSortKey(string? ip) =>

@@ -101,6 +101,9 @@ public sealed partial class AwsGateway
                 bool? writer = writers.TryGetValue(db.DBInstanceIdentifier, out var w) ? w : null;
                 result.Instances.Add(new RdsInstanceSnapshot
                 {
+                    SecurityGroups = Groups((db.VpcSecurityGroups ?? []).Select(g => g.VpcSecurityGroupId)),
+                    VpcId = db.DBSubnetGroup?.VpcId,
+                    SubnetIds = (db.DBSubnetGroup?.Subnets ?? []).Select(s => s.SubnetIdentifier).Where(s => s is not null).ToList()!,
                     Identifier = db.DBInstanceIdentifier,
                     Arn = db.DBInstanceArn,
                     ClusterIdentifier = db.DBClusterIdentifier,
@@ -142,6 +145,7 @@ public sealed partial class AwsGateway
             {
                 result.Clusters.Add(new RdsClusterSnapshot
                 {
+                    SecurityGroups = Groups((cl.VpcSecurityGroups ?? []).Select(g => g.VpcSecurityGroupId)),
                     Identifier = cl.DBClusterIdentifier,
                     Arn = cl.DBClusterArn,
                     Engine = cl.Engine ?? "",
@@ -400,6 +404,7 @@ public sealed partial class AwsGateway
                 var sources = (g.MemberClusters ?? []).Append(g.ReplicationGroupId).ToHashSet();
                 result.Add(new CacheSnapshot
                 {
+                    SecurityGroups = Groups(members.SelectMany(m => m!.SecurityGroups ?? []).Select(sg => sg.SecurityGroupId)),
                     Id = g.ReplicationGroupId,
                     Kind = CacheKind.ReplicationGroup,
                     Arn = g.ARN,
@@ -457,6 +462,7 @@ public sealed partial class AwsGateway
                 }).ToList();
                 result.Add(new CacheSnapshot
                 {
+                    SecurityGroups = Groups((cl.SecurityGroups ?? []).Select(sg => sg.SecurityGroupId)),
                     Id = cl.CacheClusterId,
                     Kind = CacheKind.Cluster,
                     Arn = cl.ARN,
@@ -478,6 +484,8 @@ public sealed partial class AwsGateway
             {
                 result.Add(new CacheSnapshot
                 {
+                    SecurityGroups = Groups(sc.SecurityGroupIds ?? []),
+                    SubnetIds = sc.SubnetIds ?? [],
                     Id = sc.ServerlessCacheName,
                     Kind = CacheKind.Serverless,
                     Arn = sc.ARN,
@@ -495,6 +503,9 @@ public sealed partial class AwsGateway
             }
             return result;
         });
+
+    private static List<SecurityGroupRef> Groups(IEnumerable<string?> ids) =>
+        ids.Where(id => !string.IsNullOrEmpty(id)).Distinct().Select(id => new SecurityGroupRef(id!, "")).ToList();
 
     private static string? FormatEndpoint(ElastiCache.Endpoint? e) =>
         e?.Address is { } address ? e.Port is { } port ? $"{address}:{port}" : address : null;

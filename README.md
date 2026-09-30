@@ -244,6 +244,15 @@ Off by default; turn on per target in Settings → Accounts & regions → **Cost
   - Prices come from `pricing:GetProducts` (served from us-east-1), are cached in the vault for a week, and are read when a new instance type appears.
 - **Billed cost (Cost Explorer):** this month so far and last month for the target's region, by service (target details), and — if **resource-level data at daily granularity** is enabled in Billing → Cost Management preferences — the last 14 days per resource (details show "billed in the last 14 days"). Uses `ce:GetCostAndUsage` and `ce:GetCostAndUsageWithResources`; **each Cost Explorer request costs $0.01**, so Skypeek reads it at most every 12 hours (about $0.04 per day per target) or when you click **Refresh costs**. Global services (e.g. Route 53, CloudFront) are not in a region's total. In an AWS Organization, Cost Explorer data may only be available in the payer account.
 
+## Cost of running Skypeek
+
+Settings → **Cost of running** shows what Skypeek's own AWS calls cost, at list prices:
+
+- **This month so far:** counted from every call that reached AWS (the counts are kept per month in the vault, apart from the request log, so its 30-day cleanup does not lose them). Paid meters: CloudWatch `GetMetricData` (per metric), other CloudWatch requests (alarms, metric lists; free up to 1 million a month per account), Cost Explorer (per request), Secrets Manager API calls, KMS for revealed or written values (free up to 20,000 a month per account) and Reachability Analyzer checks. Everything else Skypeek reads is free.
+- **Month at this rate:** what was spent plus the rest of the month at the same pace.
+- **Estimate from your settings:** per target and line (metrics per poll × polls a month, alarm reads, Cost Explorer, the secrets list), so you can see what a longer interval or hiding resources would save.
+- Previous months, and the list prices used. Free tiers are per account and shared with everything else in it; discounts and credits are not included.
+
 ## Alert levels (dev and sandbox environments)
 
 A **maximum alert level** keeps environments you don't want to be bothered by from turning the tray red:
@@ -368,7 +377,7 @@ Warning-level problems turn the icon red by default; you can change that in Sett
 - **Unlock after boot.** "Start with Windows" (or "at login") launches Skypeek in the tray. Refresh starts once you unlock it once after login.
 - **Secret values and the ReadOnly role.** AWS's managed ReadOnlyAccess policy probably does not grant `secretsmanager:GetSecretValue`, and decrypting a SecureString that uses a customer-managed KMS key needs `kms:Decrypt`. If the role can't read a value, the details view says so.
 - **Console links.** Links open the AWS console in your default browser, in whichever account that browser is signed into.
-- **CloudWatch cost.** `GetMetricData` costs about $0.01 per 1,000 metrics. Settings shows an estimate for each target; for example, 50 services polled every 5 minutes is roughly $9 per month.
+- **CloudWatch cost.** `GetMetricData` costs about $0.01 per 1,000 metrics. Settings shows an estimate for each target; for example, 50 services polled every 15 minutes (the default) is roughly $3 per month, every 5 minutes about $9. The metrics poll also reads CloudWatch alarms, so a longer interval means alarms and threshold breaches show up later (up to one interval); service health (EB, ECS, status checks, VPN, builds, stacks) has its own 5-minute poll.
 - **EC2 memory.** It needs the CloudWatch agent (`CWAgent` `mem_used_percent`); otherwise it shows `n/a`.
 
 ## Troubleshooting and testing

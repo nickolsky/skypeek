@@ -53,6 +53,7 @@ public partial class SettingsView : UserControl
     // Overrides and suppressions can also change from the dashboard; keep only the edits made here and merge on save.
     private readonly HashSet<string> _removedOverrides = new();
     private readonly HashSet<string> _removedCaps = new();
+    private readonly RunningCostView _runningCost;
     private readonly List<AlarmSuppression> _addedSuppressions = new();
     private readonly List<AlarmSuppression> _removedSuppressions = new();
     private readonly List<CauseSuppression> _removedCauses = new();
@@ -76,6 +77,8 @@ public partial class SettingsView : UserControl
         NetworkInterval.ItemsSource = NetworkOptions;
         Region.ItemsSource = AwsRegions.All;
         TargetAlertCap.ItemsSource = CapOptions;
+        RunningCostTab.Content = _runningCost = new RunningCostView(session);
+        _runningCost.Refresh();
 
         LoadGeneral(settings);
         AutoUpdate.IsChecked = session.Vault.Meta.CheckForUpdates;
@@ -117,6 +120,7 @@ public partial class SettingsView : UserControl
         RefreshSuppressions();
         RefreshCauses();
         RefreshCaps();
+        _runningCost.Refresh();
     }
 
     // ---------------- load ----------------

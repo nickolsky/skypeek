@@ -159,9 +159,9 @@
                                     <ComboBox x:Name="CatalogInterval" Width="150" DisplayMemberBinding="{Binding Label}" SelectionChanged="OnEditorChanged" />
                                     <TextBox x:Name="CatalogCustom" Width="130" Margin="8,0,0,0" PlaceholderText="custom minutes" TextChanged="OnEditorChanged" />
                                 </StackPanel>
-                                <TextBlock Grid.Row="1" Text="Health poll (EB, ECS, RDS, cache, EC2, ELB)" VerticalAlignment="Center" TextWrapping="Wrap" />
+                                <TextBlock Grid.Row="1" Text="Health poll and CloudWatch alarms (free)" VerticalAlignment="Center" TextWrapping="Wrap" />
                                 <ComboBox Grid.Row="1" Grid.Column="1" x:Name="HealthInterval" Width="150" HorizontalAlignment="Left" Margin="0,3" DisplayMemberBinding="{Binding Label}" SelectionChanged="OnEditorChanged" />
-                                <TextBlock Grid.Row="2" Text="Metrics &amp; alarms" VerticalAlignment="Center" />
+                                <TextBlock Grid.Row="2" Text="Metrics (CPU, memory; paid)" VerticalAlignment="Center" TextWrapping="Wrap" />
                                 <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" Margin="0,3">
                                     <ComboBox x:Name="MetricsInterval" Width="150" DisplayMemberBinding="{Binding Label}" SelectionChanged="OnEditorChanged" />
                                     <TextBlock Classes="caption" x:Name="CostEstimate" VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap" MaxWidth="330" />
@@ -391,6 +391,8 @@
             </TabItem>
 
             <!-- ================= Security ================= -->
+            <TabItem Header="Cost of running" x:Name="RunningCostTab" />
+
             <TabItem Header="Security">
                 <StackPanel Margin="0,8,0,0" MaxWidth="400" HorizontalAlignment="Left">
                     <TextBlock Classes="section" Text="Change master password" />

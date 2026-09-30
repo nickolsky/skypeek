@@ -263,6 +263,21 @@ public sealed class HealthService
                 .Select(r => BuildRedshift(target, r, previous?.Redshift.FirstOrDefault(p => p.Snapshot.Id == r.Id && p.Snapshot.IsServerless == r.IsServerless), now)).ToList(),
             list => next.Redshift = list);
 
+        // Alarms with the health poll: reading them is free within CloudWatch's request allowance, so a slower
+        // (paid) metrics poll does not delay them.
+        try
+        {
+            var result = await _gateway.GetAlarmsAsync(target, now.AddHours(-Math.Max(1, _settings.Settings.AlarmHistoryHours)), ct);
+            ApplyAlarms(next, result.Alarms.Where(a => HealthRules.IsRelevantAlarm(a) && (a.IsActive || a.IsRecent)).ToList());
+        }
+        catch (Exception ex) when (ex is not CredentialsUnavailableException and not OperationCanceledException)
+        {
+            if (IsAccessProblem(ex))
+                accessNotes.Add($"CloudWatch alarms: {ex.Message}");
+            else
+                errors.Add($"Alarms: {ex.Message}");
+        }
+
         next.AccessNotes = accessNotes;
         next.HealthUpdated = now;
         next.HealthError = errors.Count > 0 ? string.Join("; ", errors) : null;
@@ -310,20 +325,7 @@ public sealed class HealthService
             }
         }
 
-        List<AlarmInfo>? alarms = null;
-        try
-        {
-            var result = await _gateway.GetAlarmsAsync(target, now.AddHours(-Math.Max(1, settings.AlarmHistoryHours)), ct);
-            alarms = result.Alarms.Where(a => HealthRules.IsRelevantAlarm(a) && (a.IsActive || a.IsRecent)).ToList();
-        }
-        catch (Exception ex) when (ex is not CredentialsUnavailableException and not OperationCanceledException)
-        {
-            errors.Add($"Alarms: {ex.Message}");
-        }
-
         ApplyMetrics(target, health, bindings, data, settings, now, errors.Count == 0 || data.Count > 0);
-        if (alarms is not null)
-            ApplyAlarms(health, alarms);
 
         health.MetricsUpdated = now;
         health.MetricsError = errors.Count > 0 ? string.Join("; ", errors) : null;

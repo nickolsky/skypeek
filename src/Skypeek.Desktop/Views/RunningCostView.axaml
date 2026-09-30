@@ -1,0 +1,100 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="using:Skypeek.Desktop.Views"
+             xmlns:models="using:Skypeek.Core.Models"
+             x:Class="Skypeek.Desktop.Views.RunningCostView">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="0,8,18,12" MaxWidth="900" HorizontalAlignment="Left">
+            <DockPanel>
+                <views:IconButton DockPanel.Dock="Right" Content="Refresh" Symbol="ArrowClockwise" Click="OnRefresh" VerticalAlignment="Top" />
+                <StackPanel>
+                    <TextBlock Classes="section" Text="Cost of running Skypeek" Margin="0" />
+                    <TextBlock Classes="caption" TextWrapping="Wrap" Margin="0,2,0,0"
+                               Text="What Skypeek's own AWS calls cost at AWS list prices: counted from every call it makes, and estimated from your settings. Your AWS bill for the resources themselves is on the dashboard (Costs)." />
+                </StackPanel>
+            </DockPanel>
+
+            <WrapPanel Margin="0,12,0,4">
+                <Border Classes="panel" Margin="0,0,10,10" MinWidth="200">
+                    <StackPanel>
+                        <TextBlock Classes="caption" Text="This month so far" />
+                        <TextBlock x:Name="MonthToDate" FontSize="22" FontWeight="SemiBold" Foreground="{StaticResource TextStrong}" />
+                        <TextBlock x:Name="CountingSince" Classes="caption" TextWrapping="Wrap" MaxWidth="220" />
+                    </StackPanel>
+                </Border>
+                <Border Classes="panel" Margin="0,0,10,10" MinWidth="200">
+                    <StackPanel>
+                        <TextBlock Classes="caption" Text="Month at this rate" />
+                        <TextBlock x:Name="Projected" FontSize="22" FontWeight="SemiBold" Foreground="{StaticResource TextStrong}" />
+                        <TextBlock Classes="caption" Text="spent so far + the rest of the month at the same pace" TextWrapping="Wrap" MaxWidth="220" />
+                    </StackPanel>
+                </Border>
+                <Border Classes="panel" Margin="0,0,10,10" MinWidth="200">
+                    <StackPanel>
+                        <TextBlock Classes="caption" Text="Estimate from your settings" />
+                        <TextBlock x:Name="Estimated" FontSize="22" FontWeight="SemiBold" Foreground="{StaticResource TextStrong}" />
+                        <TextBlock Classes="caption" Text="per month, with the current intervals and resources" TextWrapping="Wrap" MaxWidth="220" />
+                    </StackPanel>
+                </Border>
+            </WrapPanel>
+
+            <TextBlock Classes="section" Text="Paid calls this month" />
+            <TextBlock x:Name="NoCalls" Classes="caption" Text="No paid calls counted yet this month." IsVisible="False" />
+            <ItemsControl x:Name="MeterList">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="models:MeterUsage">
+                        <Grid ColumnDefinitions="300,*,90" Margin="0,2">
+                            <TextBlock Classes="body" Text="{Binding Meter.Name}" TextWrapping="Wrap" />
+                            <TextBlock Grid.Column="1" Classes="caption" Text="{Binding UsageText}" VerticalAlignment="Center" TextWrapping="Wrap" Margin="8,0" />
+                            <TextBlock Grid.Column="2" Classes="body" Text="{Binding CostText}" HorizontalAlignment="Right" FontWeight="SemiBold" />
+                        </Grid>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <TextBlock Classes="section" Text="Estimate per target" Margin="0,14,0,4" />
+            <ItemsControl x:Name="TargetList">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="models:TargetRunningCost">
+                        <Border Classes="panel" Margin="0,0,0,8">
+                            <StackPanel>
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Right" Classes="body" FontWeight="SemiBold" Text="{Binding MonthlyUsd, StringFormat='${0:0.00}/month'}" />
+                                    <TextBlock Classes="body" FontWeight="SemiBold" Foreground="{StaticResource TextStrong}" Text="{Binding Target.DisplayName}" />
+                                </DockPanel>
+                                <ItemsControl ItemsSource="{Binding Lines}" Margin="0,6,0,0">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="models:CostEstimateLine">
+                                            <Grid ColumnDefinitions="260,*,70" Margin="0,2">
+                                                <TextBlock Classes="body" Text="{Binding Item}" TextWrapping="Wrap" />
+                                                <StackPanel Grid.Column="1" Margin="8,0">
+                                                    <TextBlock Classes="caption" Text="{Binding Usage}" TextWrapping="Wrap" Foreground="{StaticResource TextNormal}" />
+                                                    <TextBlock Classes="caption" Text="{Binding Note}" TextWrapping="Wrap" IsVisible="{Binding Note, Converter={StaticResource NotEmpty}}" />
+                                                </StackPanel>
+                                                <TextBlock Grid.Column="2" Classes="body" Text="{Binding CostText}" HorizontalAlignment="Right" />
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <StackPanel x:Name="HistoryPanel" IsVisible="False">
+                <TextBlock Classes="section" Text="Previous months" Margin="0,8,0,4" />
+                <ItemsControl x:Name="MonthList">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="models:MonthCost">
+                            <TextBlock Classes="body" Text="{Binding Text}" Margin="0,1" />
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+
+            <TextBlock Classes="caption" TextWrapping="Wrap" Margin="0,12,0,0"
+                       Text="List prices (us-east-1): GetMetricData $0.01 per 1,000 metrics; other CloudWatch requests $0.01 per 1,000 beyond 1 million a month; Cost Explorer $0.01 per request; Secrets Manager $0.05 per 10,000 calls; KMS $0.03 per 10,000 beyond 20,000 a month; Reachability Analyzer $0.10 per analysis. Free tiers are per account and shared with everything else in it, so they may already be used up. Discounts and credits are not included. Lower the cost with a longer metrics interval (Accounts &amp; regions) or by hiding resources you don't need (they are not queried)." />
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

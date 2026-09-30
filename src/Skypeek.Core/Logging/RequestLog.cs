@@ -30,6 +30,8 @@ public sealed class RequestLogEntry
 
     /// <summary>The call used the target's elevated profile (after the user approved it).</summary>
     public bool Elevated { get; init; }
+    /// <summary>Billed units of the call: metrics requested for GetMetricData, otherwise 1.</summary>
+    public int Units { get; init; } = 1;
 
     public DateTime TimestampLocal => TimestampUtc.ToLocalTime();
     public string KeyLabel => Elevated ? "ELEVATED" : "read-only";

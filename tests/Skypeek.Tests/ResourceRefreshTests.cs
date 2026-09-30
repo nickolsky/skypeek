@@ -573,6 +573,7 @@ public class ResourceRefreshTests
             Name = "api-unhealthy", State = "ALARM", Namespace = "AWS/ApplicationELB", MetricName = "UnHealthyHostCount",
             Dimensions = new() { ["TargetGroup"] = "targetgroup/api/def456", ["LoadBalancer"] = "app/web-alb/abc123" },
         });
+        await health.PollHealthAsync(target, CancellationToken.None);
         await health.PollMetricsAsync(target, CancellationToken.None);
         Assert.All(gateway.LastQueries, q => Assert.Equal("app/web-alb/abc123", q.Dimensions["LoadBalancer"]));
         lb = health.Get(1)!.LoadBalancers.Single();

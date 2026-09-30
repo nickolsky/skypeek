@@ -69,6 +69,7 @@ public sealed class RequestLogHandler(IRequestLogSink log) : PipelineHandler
             RequestId = requestId,
             ErrorCode = errorCode,
             Message = RequestScope.Scrub(message) is not { } text ? null : text.Length > MaxMessageLength ? text[..MaxMessageLength] + "…" : text,
+            Units = request is CloudWatch.GetMetricDataRequest m ? m.MetricDataQueries?.Count ?? 0 : 1,
         });
     }
 }

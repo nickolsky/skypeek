@@ -72,8 +72,8 @@ public sealed class ActivityTracker
     public static string JobText(JobKind kind) => kind switch
     {
         JobKind.Catalog => "secrets and parameters list",
-        JobKind.Health => "health",
-        JobKind.Metrics => "metrics and alarms",
+        JobKind.Health => "health and alarms",
+        JobKind.Metrics => "metrics",
         JobKind.Network => "network download",
         JobKind.Costs => "costs",
         _ => kind.ToString().ToLowerInvariant(),

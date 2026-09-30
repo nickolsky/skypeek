@@ -165,7 +165,8 @@ public sealed class Target
     /// <summary>Network inventory download; 0 = only on demand.</summary>
     public int NetworkIntervalMinutes { get; set; } = 60;
     public int HealthIntervalMinutes { get; set; } = 5;
-    public int MetricsIntervalMinutes { get; set; } = 5;
+    /// <summary>CPU/memory metrics and CloudWatch alarms (GetMetricData costs per metric; 15 minutes keeps it a third of 5).</summary>
+    public int MetricsIntervalMinutes { get; set; } = 15;
 
     public ThresholdSettings? EcsThresholds { get; set; }
     public ThresholdSettings? EbThresholds { get; set; }

@@ -208,6 +208,14 @@ public interface ICostStore
     IReadOnlyList<CostSnapshot> LoadAll();
 }
 
+/// <summary>Monthly counts of the calls that AWS bills (see <see cref="Models.PaidApi"/>); unaffected by the request log's retention.</summary>
+public interface IApiUsageStore
+{
+    IReadOnlyList<ApiUsageRow> Usage(string fromMonth);
+    /// <summary>The oldest request log entry since <paramref name="sinceUtc"/> (when counting began, for projections).</summary>
+    DateTime? FirstLogged(DateTime sinceUtc);
+}
+
 public interface IRequestLogStore
 {
     void Append(RequestLogEntry entry);

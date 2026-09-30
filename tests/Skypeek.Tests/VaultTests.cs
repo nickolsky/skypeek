@@ -120,4 +120,69 @@ public class VaultTests
         var entry = Assert.Single(repo.Recent(10));
         Assert.Equal("ListClusters", entry.Operation);
     }
+
+    [Fact]
+    public void Paid_calls_are_counted_per_month_and_survive_the_request_log_purge()
+    {
+        using var dir = new TempDir();
+        using var vault = Vault.Create(dir.Path, "pw", "Win+Alt+A");
+        var repo = new VaultRepository(vault);
+        var now = DateTime.UtcNow;
+        RequestLogEntry Call(string service, string op, int units = 1, RequestOutcome outcome = RequestOutcome.Success, string parameters = "") =>
+            new() { TimestampUtc = now, Profile = "p", Region = "us-east-1", Service = service, Operation = op, Units = units, Outcome = outcome, HttpStatus = 200, Parameters = parameters };
+        repo.Append(Call("cloudwatch", "GetMetricData", units: 186));
+        repo.Append(Call("cloudwatch", "GetMetricData", units: 14));
+        repo.Append(Call("cloudwatch", "DescribeAlarms"));
+        repo.Append(Call("secretsmanager", "GetSecretValue"));
+        repo.Append(Call("ssm", "GetParameter", parameters: "Name=/a, WithDecryption=True"));
+        repo.Append(Call("ec2", "DescribeInstances"));
+        repo.Append(Call("ce", "GetCostAndUsage", outcome: RequestOutcome.Blocked));
+
+        var usage = repo.Usage(PaidApi.MonthOf(now));
+        Assert.Equal(200, usage.Single(u => u.Meter == PaidApi.Metrics.Id).Units);
+        Assert.Equal(2, usage.Single(u => u.Meter == PaidApi.Metrics.Id).Calls);
+        Assert.Equal(1, usage.Single(u => u.Meter == PaidApi.CloudWatchRequests.Id).Calls);
+        Assert.Equal(2, usage.Single(u => u.Meter == PaidApi.Kms.Id).Calls);
+        Assert.DoesNotContain(usage, u => u.Meter == PaidApi.CostExplorer.Id); // blocked: never sent
+        Assert.Equal(4, usage.Count);
+
+        repo.Purge(now.AddDays(1));
+        Assert.Equal(4, repo.Usage(PaidApi.MonthOf(now)).Count);
+        Assert.Equal(0.002, PaidApi.Cost(PaidApi.Metrics, 200), 6);
+        Assert.Equal(0, PaidApi.Cost(PaidApi.Kms, 2));
+    }
+
+    [Fact]
+    public void Running_cost_estimate_follows_the_settings()
+    {
+        var target = new Target { Id = 1, ProfileName = "p", MetricsIntervalMinutes = 15, HealthIntervalMinutes = 5, CostExplorerEnabled = true };
+        var cost = RunningCost.Estimate(target, metricsPerPoll: 186, secrets: 250, alarms: 40);
+        // 186 metrics × 2,880 polls × $0.01 per 1,000.
+        Assert.Equal(5.36, cost.Lines.Single(l => l.Item == PaidApi.Metrics.Name).MonthlyUsd, 2);
+        Assert.Equal(1.20, cost.Lines.Single(l => l.Item == PaidApi.CostExplorer.Name).MonthlyUsd, 2);
+        Assert.True(cost.Lines.Single(l => l.Item == PaidApi.CloudWatchRequests.Name).IsFree);
+        target.MetricsIntervalMinutes = 5;
+        Assert.Equal(16.07, RunningCost.Estimate(target, 186, 250, 40).Lines.Single(l => l.Item == PaidApi.Metrics.Name).MonthlyUsd, 2);
+    }
+
+    [Fact]
+    public void Running_cost_report_applies_free_tiers_per_account_and_projects_the_month()
+    {
+        var now = new DateTime(2026, 9, 11, 0, 0, 0, DateTimeKind.Utc); // 10 days in, 20 to go
+        var month = PaidApi.MonthOf(now);
+        IReadOnlyList<ApiUsageRow> usage =
+        [
+            new(month, "a-readonly", "us-east-1", PaidApi.Metrics.Id, 1000, 100_000),        // $1.00
+            new(month, "a-readonly", "eu-west-1", PaidApi.Metrics.Id, 1000, 100_000),        // $1.00
+            new(month, "a-readonly", "us-east-1", PaidApi.CloudWatchRequests.Id, 600_000, 600_000),
+            new(month, "a-readonly", "eu-west-1", PaidApi.CloudWatchRequests.Id, 600_000, 600_000), // 1.2M in one account: 200k billed = $2.00
+            new(month, "b-readonly", "us-east-1", PaidApi.CloudWatchRequests.Id, 600_000, 600_000), // another account: free
+            new("2026-08", "a-readonly", "us-east-1", PaidApi.CostExplorer.Id, 30, 30),
+        ];
+        var report = RunningCostReport.Build(usage, [], p => p![..1], now, null);
+        Assert.Equal(4.00, report.MonthToDateUsd, 2);
+        Assert.Equal(12.00, report.ProjectedUsd, 2);
+        Assert.Equal(0.30, report.PreviousMonths.Single().Usd, 2);
+        Assert.Equal(2, report.ThisMonth.Count);
+    }
 }

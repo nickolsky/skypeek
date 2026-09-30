@@ -171,8 +171,8 @@
                 <TextBlock Classes="section" Text="Schedules" />
                 <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="Lists" /><TextBlock Classes="value" Text="{Binding Catalog}" MaxWidth="520" /></StackPanel>
                 <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="Network" /><TextBlock Classes="value" Text="{Binding Network}" MaxWidth="520" /></StackPanel>
-                <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="Health" /><TextBlock Classes="value" Text="{Binding Health}" MaxWidth="520" /></StackPanel>
-                <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="Metrics &amp; alarms" /><TextBlock Classes="value" Text="{Binding Metrics}" MaxWidth="520" /></StackPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="Health, alarms" /><TextBlock Classes="value" Text="{Binding Health}" MaxWidth="520" /></StackPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="Metrics" /><TextBlock Classes="value" Text="{Binding Metrics}" MaxWidth="520" /></StackPanel>
                 <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="Metrics cost" /><TextBlock Classes="value" Text="{Binding Cost, TargetNullValue='—'}" /></StackPanel>
                 <TextBlock Text="{Binding Errors}" Foreground="#FFFF7B7F" TextWrapping="Wrap" Margin="0,8,0,0" IsVisible="{Binding Errors, Converter={StaticResource NotEmpty}}" />
 
@@ -1471,8 +1471,8 @@
         </Grid.RowDefinitions>
 
         <WrapPanel>
-            <views:IconButton Symbol="HeartPulse" Content="Refresh health" Click="OnRefreshHealth" Margin="0,0,6,4" />
-            <views:IconButton Symbol="DataLine" Content="Refresh metrics &amp; alarms" Click="OnRefreshMetrics" Margin="0,0,6,4" />
+            <views:IconButton Symbol="HeartPulse" Content="Refresh health &amp; alarms" Click="OnRefreshHealth" Margin="0,0,6,4" />
+            <views:IconButton Symbol="DataLine" Content="Refresh metrics" Click="OnRefreshMetrics" Margin="0,0,6,4" />
             <views:IconButton Symbol="ArrowSync" Content="Refresh lists" Click="OnRefreshCatalogs" Margin="0,0,14,4" />
             <TextBox x:Name="SearchBox" Width="280" Margin="0,0,10,4" views:SearchBoxClear.Enabled="True" PlaceholderText="Search (Ctrl+F): name, id, IP, endpoint, image…"
                         TextChanged="OnSearchChanged" KeyDown="OnSearchKeyDown" />

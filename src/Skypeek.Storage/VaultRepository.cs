@@ -10,7 +10,7 @@ namespace Skypeek.Storage;
 
 /// <summary>All persistence on top of the encrypted vault.</summary>
 public sealed class VaultRepository(Vault vault) :
-    ISettingsStore, ICatalogStore, ISyncRunStore, IHealthStore, INetworkStore, ICostStore, ICredentialHaltStore, IRequestLogStore
+    ISettingsStore, ICatalogStore, ISyncRunStore, IHealthStore, INetworkStore, ICostStore, ICredentialHaltStore, IRequestLogStore, IApiUsageStore
 {
     private static readonly JsonSerializerOptions Json = new();
 
@@ -346,6 +346,34 @@ public sealed class VaultRepository(Vault vault) :
             ("$params", e.Parameters), ("$out", (int)e.Outcome), ("$http", e.HttpStatus), ("$ms", e.DurationMs), ("$rid", e.RequestId),
             ("$err", e.ErrorCode), ("$msg", e.Message), ("$el", e.Elevated ? 1 : 0));
         e.Id = (long)cmd.ExecuteScalar()!;
+
+        // Calls that reached AWS count toward its bill (blocked and skipped ones never left the machine).
+        if (e.Outcome is not (RequestOutcome.Success or RequestOutcome.Error) || e.Outcome == RequestOutcome.Error && e.HttpStatus is null)
+            return;
+        foreach (var (meter, units) in PaidApi.Classify(e.Service, e.Operation, e.Parameters, e.Units))
+        {
+            using var usage = Command(c, """
+                INSERT INTO api_usage (month, profile, region, meter, calls, units) VALUES ($m, $p, $r, $meter, 1, $u)
+                ON CONFLICT (month, profile, region, meter) DO UPDATE SET calls = calls + 1, units = units + $u
+                """, ("$m", PaidApi.MonthOf(e.TimestampUtc)), ("$p", e.Profile ?? ""), ("$r", e.Region ?? ""), ("$meter", meter.Id), ("$u", units));
+            usage.ExecuteNonQuery();
+        }
+    });
+
+    public DateTime? FirstLogged(DateTime sinceUtc) => vault.Execute(c =>
+    {
+        using var cmd = Command(c, "SELECT MIN(ts) FROM request_log WHERE ts >= $ts", ("$ts", Iso(sinceUtc)));
+        return cmd.ExecuteScalar() is string ts ? DateTime.Parse(ts, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal) : (DateTime?)null;
+    });
+
+    public IReadOnlyList<ApiUsageRow> Usage(string fromMonth) => vault.Execute(c =>
+    {
+        using var cmd = Command(c, "SELECT month, profile, region, meter, calls, units FROM api_usage WHERE month >= $m ORDER BY month", ("$m", fromMonth));
+        using var r = cmd.ExecuteReader();
+        var rows = new List<ApiUsageRow>();
+        while (r.Read())
+            rows.Add(new ApiUsageRow(r.GetString(0), Str(r, 1), Str(r, 2), r.GetString(3), r.GetInt64(4), r.GetInt64(5)));
+        return (IReadOnlyList<ApiUsageRow>)rows;
     });
 
     public IReadOnlyList<RequestLogEntry> Recent(int limit) => vault.Execute(c =>

@@ -53,6 +53,12 @@ internal static class Schema
         """
         CREATE TABLE cost_snapshots (target_id INTEGER PRIMARY KEY, json TEXT NOT NULL, updated_at TEXT NOT NULL);
         """,
+        """
+        CREATE TABLE api_usage (
+            month TEXT NOT NULL, profile TEXT NOT NULL, region TEXT NOT NULL, meter TEXT NOT NULL,
+            calls INTEGER NOT NULL, units INTEGER NOT NULL,
+            PRIMARY KEY (month, profile, region, meter));
+        """,
     ];
 
     public static void Migrate(SqliteConnection connection)

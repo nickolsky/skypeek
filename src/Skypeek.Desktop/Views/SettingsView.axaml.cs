@@ -7,6 +7,7 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using Skypeek.Desktop.Infrastructure;
 using Skypeek.Desktop.Platform;
+using Skypeek.Desktop.Updates;
 using System.Globalization;
 using Skypeek.Core.Credentials;
 using Skypeek.Core.Health;
@@ -66,6 +67,13 @@ public partial class SettingsView : UserControl
         Region.ItemsSource = AwsRegions.All;
 
         LoadGeneral(settings);
+        AutoUpdate.IsChecked = session.Vault.Meta.CheckForUpdates;
+        if (App.Current.Updates is { } updates)
+        {
+            updates.Changed += RefreshUpdates;
+            DetachedFromVisualTree += (_, _) => updates.Changed -= RefreshUpdates;
+        }
+        RefreshUpdates();
         LoadMonitoring(settings);
         LoadProfiles(settings.ShowNonReadOnlyProfiles);
         RefreshTargetList();
@@ -618,6 +626,9 @@ public partial class SettingsView : UserControl
             }
         }
 
+        if (AutoUpdate.IsChecked != _session.Vault.Meta.CheckForUpdates)
+            _session.Vault.SetCheckForUpdates(AutoUpdate.IsChecked == true);
+
         try
         {
             Autostart.SetEnabled(RunOnStartup.IsChecked == true);
@@ -666,5 +677,47 @@ public partial class SettingsView : UserControl
             return value;
         errors.Add($"{label} must be between {min} and {max}.");
         return min;
+    }
+
+    // ---------------- updates ----------------
+
+    private void RefreshUpdates()
+    {
+        if (App.Current.Updates is not { } updates)
+        {
+            UpdateInstall.Text = $"Version {AppInfo.Version}";
+            CheckUpdatesButton.IsEnabled = false;
+            return;
+        }
+        UpdateInstall.Text = $"Version {AppInfo.Version} · {updates.Describe()}";
+        var checkedAt = updates.LastCheckedUtc is { } at ? $" (checked {at.ToLocalTime():t})" : "";
+        UpdateStatus.Text = updates.Stage switch
+        {
+            UpdateStage.Disabled => $"Updates are off in this build: {updates.Error}.",
+            UpdateStage.Checking => "Checking…",
+            UpdateStage.UpToDate => "Up to date" + checkedAt + ".",
+            UpdateStage.Available => $"Version {updates.NewVersion} is available{checkedAt}. Download it from the download page.",
+            UpdateStage.Downloading => $"Downloading version {updates.NewVersion}… {updates.DownloadPercent}%",
+            UpdateStage.Ready => $"Version {updates.NewVersion} is downloaded. Restart Skypeek to install it (or it installs at the next start).",
+            UpdateStage.Failed => $"Could not check for updates{checkedAt}: {updates.Error}",
+            _ => "Not checked yet.",
+        };
+        CheckUpdatesButton.IsEnabled = updates.Stage is not (UpdateStage.Disabled or UpdateStage.Checking or UpdateStage.Downloading or UpdateStage.Ready);
+        RestartToUpdateButton.IsVisible = updates.Stage == UpdateStage.Ready;
+        DownloadPageLink.IsVisible = updates.Kind != InstallKind.Installed && UpdateService.DownloadPage is not null;
+    }
+
+    private async void OnCheckUpdates(object? sender, RoutedEventArgs e)
+    {
+        if (App.Current.Updates is { } updates)
+            await updates.CheckAsync();
+    }
+
+    private void OnRestartToUpdate(object? sender, RoutedEventArgs e) => App.Current.Updates?.RestartToUpdate();
+
+    private void OnOpenDownloadPage(object? sender, RoutedEventArgs e)
+    {
+        if (UpdateService.DownloadPage is { } page)
+            Shell.OpenUrl(page);
     }
 }

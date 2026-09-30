@@ -14,13 +14,29 @@
     <RootNamespace>Skypeek.Desktop</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\Skypeek.ico</ApplicationIcon>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <!-- Bindings in XAML resolve by reflection, like WPF (DataTemplates are chosen by payload type at run time). -->
     <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
     <BuiltInComInteropSupport>false</BuiltInComInteropSupport>
     <!-- Views take the session in their constructor by design (no XAML designer/runtime loader use). -->
     <NoWarn>$(NoWarn);AVLN3001</NoWarn>
   </PropertyGroup>
+
+  <!--
+    Updates: the signed feeds (releases.{channel}.json + .sig) and packages live on the latest GitHub release; the
+    download page is where the single-file builds send people for a new version. Override per build with
+    -p:SkypeekUpdateUrl=… / -p:SkypeekDownloadPage=… (e.g. once the site has its own domain).
+  -->
+  <PropertyGroup>
+    <SkypeekUpdateUrl Condition="'$(SkypeekUpdateUrl)' == ''">https://github.com/nickolsky/skypeek/releases/latest/download</SkypeekUpdateUrl>
+    <SkypeekDownloadPage Condition="'$(SkypeekDownloadPage)' == ''">https://github.com/nickolsky/skypeek/releases/latest</SkypeekDownloadPage>
+  </PropertyGroup>
+  <ItemGroup>
+    <AssemblyMetadata Include="SkypeekUpdateUrl" Value="$(SkypeekUpdateUrl)" />
+    <AssemblyMetadata Include="SkypeekDownloadPage" Value="$(SkypeekDownloadPage)" />
+    <!-- Public keys the update feeds must be signed with (tools/Skypeek.ReleaseTool keygen adds one). -->
+    <EmbeddedResource Include="UpdateKeys\*.pub.pem" LogicalName="UpdateKeys.%(Filename)%(Extension)" />
+  </ItemGroup>
 
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
     <PublishSingleFile>true</PublishSingleFile>
@@ -39,6 +55,7 @@
     <PackageReference Include="FluentIcons.Avalonia" Version="2.1.343" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="Microsoft.Win32.SystemEvents" Version="10.0.12" />
+    <PackageReference Include="Velopack" Version="1.2.161" />
   </ItemGroup>
 
   <ItemGroup Condition="$(TargetFramework.Contains('-windows'))">

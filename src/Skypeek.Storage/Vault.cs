@@ -20,6 +20,9 @@ public sealed class VaultMeta
 
     /// <summary>Needed before unlock (the hotkey that opens the unlock prompt), so it cannot live inside the vault.</summary>
     public string Hotkey { get; set; } = "Win+Alt+A";
+
+    /// <summary>Check for Skypeek updates automatically; read while locked too, so it sits next to the hotkey.</summary>
+    public bool CheckForUpdates { get; set; } = true;
 }
 
 public static class KeyDerivation
@@ -192,7 +195,7 @@ public sealed class Vault : IDisposable
         if (!VerifyPassword(currentPassword))
             throw new InvalidPasswordException();
 
-        var newMeta = new VaultMeta { Salt = Convert.ToBase64String(RandomNumberGenerator.GetBytes(16)), Hotkey = _meta.Hotkey };
+        var newMeta = new VaultMeta { Salt = Convert.ToBase64String(RandomNumberGenerator.GetBytes(16)), Hotkey = _meta.Hotkey, CheckForUpdates = _meta.CheckForUpdates };
         var newKey = KeyDerivation.DeriveKey(newPassword, newMeta);
 
         lock (_gate)
@@ -217,6 +220,15 @@ public sealed class Vault : IDisposable
         lock (_gate)
         {
             _meta.Hotkey = hotkey;
+            WriteMetaAtomic(_directory, _meta);
+        }
+    }
+
+    public void SetCheckForUpdates(bool check)
+    {
+        lock (_gate)
+        {
+            _meta.CheckForUpdates = check;
             WriteMetaAtomic(_directory, _meta);
         }
     }

@@ -25,7 +25,10 @@ public static class PlatformInfo
     /// <summary>The command line that starts this app again (single-file executable, or dotnet + dll during development).</summary>
     public static (string File, string[] Arguments) SelfCommand(params string[] extra)
     {
-        var process = Environment.ProcessPath ?? "Skypeek";
+        // An AppImage runs from a temporary mount; $APPIMAGE is the file itself.
+        var process = Environment.GetEnvironmentVariable("APPIMAGE") is { Length: > 0 } appImage && OperatingSystem.IsLinux()
+            ? appImage
+            : Environment.ProcessPath ?? "Skypeek";
         if (Path.GetFileNameWithoutExtension(process).Equals("dotnet", StringComparison.OrdinalIgnoreCase))
             return (process, [Path.Combine(AppContext.BaseDirectory, "Skypeek.dll"), .. extra]);
         return (process, extra);

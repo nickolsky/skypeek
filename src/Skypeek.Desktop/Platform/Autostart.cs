@@ -54,6 +54,47 @@ public static class Autostart
             SetFile(LinuxDesktopFile, enabled, DesktopEntryText);
     }
 
+    /// <summary>After installing or updating: an existing startup entry now starts this copy (e.g. the installed one).</summary>
+    public static void RefreshPath()
+    {
+        try
+        {
+            if (IsEnabled())
+                SetEnabled(true);
+        }
+        catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException or IOException)
+        {
+            // Settings → General can set it again.
+        }
+    }
+
+    /// <summary>Uninstall: removes the startup entry if it starts a program inside <paramref name="directory"/>.</summary>
+    public static void RemoveIfPointsInto(string directory)
+    {
+        try
+        {
+            var root = Path.GetFullPath(Path.Combine(directory, ".."));
+            if (Command() is { } command && command.Contains(root, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+                SetEnabled(false);
+        }
+        catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException or IOException)
+        {
+            // Nothing else to do while uninstalling.
+        }
+    }
+
+    /// <summary>What the startup entry runs (the Run value, or the file's text), or null.</summary>
+    private static string? Command()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(RunKey);
+            return key?.GetValue(ValueName) as string;
+        }
+        var path = OperatingSystem.IsMacOS() ? MacPlist : LinuxDesktopFile;
+        return File.Exists(path) ? File.ReadAllText(path) : null;
+    }
+
     [SupportedOSPlatform("windows")]
     private static void SetWindows(bool enabled)
     {

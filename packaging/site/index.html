@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Skypeek for AWS</title>
+<meta name="description" content="A read-only tray tool for everyday AWS lookups on Windows, macOS and Linux.">
+<link rel="icon" href="skypeek.png">
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1b1f24; --muted: #5b6470; --line: #dde1e6;
+    --accent: #005fb8; --accent-text: #ffffff; --chip: #eef1f4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1c1c1c; --panel: #262626; --text: #f1f1f1; --muted: #a8adb4; --line: #383838;
+      --accent: #60cdff; --accent-text: #000000; --chip: #303030;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.55 "Segoe UI", system-ui, -apple-system, "Inter", sans-serif; }
+  main { max-width: 880px; margin: 0 auto; padding: 48px 16px 64px; }
+  header { display: flex; align-items: center; gap: 16px; margin-bottom: 8px; }
+  header img { width: 56px; height: 56px; }
+  h1 { font-size: 30px; font-weight: 600; margin: 0; }
+  .version { color: var(--muted); font-size: 14px; }
+  .lead { color: var(--muted); font-size: 17px; margin: 8px 0 32px; max-width: 640px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 20px; }
+  .card h2 { font-size: 18px; margin: 0 0 12px; font-weight: 600; }
+  .btn { display: flex; justify-content: space-between; align-items: center; gap: 12px; text-decoration: none;
+         border-radius: 6px; padding: 10px 14px; margin-top: 10px; border: 1px solid var(--line); color: var(--text); background: var(--chip); }
+  .btn.primary { background: var(--accent); color: var(--accent-text); border-color: transparent; font-weight: 600; }
+  .btn small { opacity: .75; font-weight: 400; white-space: nowrap; }
+  .btn[href=""] { display: none; }
+  .note { color: var(--muted); font-size: 13px; margin: 10px 0 0; }
+  section { margin-top: 36px; }
+  section h2 { font-size: 18px; font-weight: 600; margin: 0 0 8px; }
+  ul { padding-left: 20px; margin: 0; }
+  li { margin: 4px 0; }
+  code { background: var(--chip); border-radius: 4px; padding: 1px 5px; font-size: 13px; overflow-wrap: anywhere; }
+  a { color: var(--accent); }
+  footer { margin-top: 48px; color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <img src="skypeek.png" alt="">
+    <div>
+      <h1>Skypeek for AWS</h1>
+      <div class="version">Version {{VERSION}}</div>
+    </div>
+  </header>
+  <p class="lead">A read-only tray tool for everyday AWS lookups: health of Elastic Beanstalk, ECS, RDS, ElastiCache, EC2 and load balancers, logs, VPCs and security groups, secrets and parameters, and cost estimates.</p>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Windows</h2>
+      <a class="btn primary" href="{{WIN_INSTALLER}}">Installer <small>{{WIN_INSTALLER_SIZE}}</small></a>
+      <a class="btn" href="{{WIN_SINGLE}}">Single file, no install <small>{{WIN_SINGLE_SIZE}}</small></a>
+      <p class="note">The installer needs no administrator rights and keeps Skypeek up to date. The single file runs from anywhere and tells you when a new version is out.</p>
+    </div>
+    <div class="card">
+      <h2>Linux</h2>
+      <a class="btn primary" href="{{LINUX_INSTALLER}}">AppImage <small>{{LINUX_INSTALLER_SIZE}}</small></a>
+      <a class="btn" href="{{LINUX_SINGLE}}">Single file (.tar.gz) <small>{{LINUX_SINGLE_SIZE}}</small></a>
+      <p class="note">AppImage: <code>chmod +x Skypeek-linux-x64.AppImage</code> and run it; it updates itself. The tarball has <code>install.sh</code> for a per-user install.</p>
+    </div>
+    <div class="card">
+      <h2>macOS</h2>
+      <a class="btn" href="{{RELEASES_PAGE}}">See the latest release</a>
+      <p class="note">macOS builds are published when available.</p>
+    </div>
+  </div>
+
+  <section>
+    <h2>Safe updates</h2>
+    <ul>
+      <li>Skypeek installs an update only if its release list is signed with the Skypeek release key, and each file matches the SHA-256 in that list.</li>
+      <li>The update check sends only the request for the release list, never data from your vault or AWS accounts.</li>
+      <li>You can turn automatic checks off in Settings → General.</li>
+      <li>The downloads aren't code-signed yet, so Windows SmartScreen may ask you to confirm the first start (More info → Run anyway).</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Checksums</h2>
+    <p class="note" style="margin-top:0">SHA-256 of every file: <a href="{{DOWNLOAD_BASE}}/SHA256SUMS.txt">SHA256SUMS.txt</a>. Release notes: <a href="{{RELEASES_PAGE}}">latest release on GitHub</a>.</p>
+  </section>
+
+  <footer>Skypeek is an independent tool and is not affiliated with Amazon Web Services. "for AWS" only says what it works with.</footer>
+</main>
+</body>
+</html>

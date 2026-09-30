@@ -24,15 +24,51 @@ dotnet build Skypeek.sln
 dotnet test tests/Skypeek.Tests
 ```
 
-| Platform | Build | Result |
+For a quick local build of just the single files: `tools\publish.ps1 -SingleFileOnly` (into `dist\upload`).
+
+### Install
+
+Downloads are on the [latest release](https://github.com/nickolsky/skypeek/releases/latest) (and on the download page, see [Releasing](#releasing)):
+
+| Platform | Installer (updates itself) | Single file (no install) |
 |---|---|---|
-| Windows | `tools\publish.ps1 -Targets win` | `dist\win-x64\Skypeek.exe`, one file; needs the .NET 10 runtime (`-SelfContained` for one that doesn't) |
-| Linux | `tools\publish.ps1 -Targets linux` (on Windows), or on Linux: `dotnet publish src/Skypeek.Desktop -c Release -r linux-x64 -p:SelfContained=true -o dist/linux` | `dist/Skypeek-<version>-linux-x64.tar.gz`: one self-contained file plus `install.sh` |
-| macOS | on a Mac: `tools/package-macos.sh` (`ARCH=x64` for Intel; `SIGN_IDENTITY=… NOTARY_PROFILE=…` to sign and notarize) | `dist/macos-<arch>/Skypeek.app` and a zip |
+| Windows | `Skypeek-win-x64-Setup.exe`: per user, no administrator rights; Start menu and desktop shortcuts; uninstall from Settings → Apps | `Skypeek-win-x64.exe`: runs from anywhere, no .NET needed |
+| Linux | `Skypeek-linux-x64.AppImage`: `chmod +x` and run | `Skypeek-linux-x64.tar.gz`: `tar xzf … && sh skypeek-linux-x64/install.sh` installs for the current user (`~/.local/share/skypeek`, a menu entry, `~/.local/bin/skypeek`; `--uninstall` removes it) |
+| macOS | `Skypeek-osx-<arch>.pkg` once a Mac build is published | `Skypeek.app` (zip): move it to Applications |
 
-**Install on Linux:** `tar xzf Skypeek-*-linux-x64.tar.gz && sh skypeek-linux-x64/install.sh`. It installs for the current user only (`~/.local/share/skypeek`, a menu entry and `~/.local/bin/skypeek`); `install.sh --uninstall` removes it and keeps the vault.
+Uninstalling keeps the vault. Unsigned macOS builds need **right-click → Open** the first time (or System Settings → Privacy & Security → Open Anyway); it is a menu bar app with no Dock icon. The Windows downloads are not code-signed yet, so SmartScreen may ask to confirm the first start.
 
-**Install on macOS:** move `Skypeek.app` to Applications. Unsigned builds need **right-click → Open** the first time (or System Settings → Privacy & Security → Open Anyway). It is a menu bar app: no Dock icon.
+### Updates
+
+- **Installed copies** (installer, AppImage) check a few minutes after start and then every 6 hours, download a new version in the background and show **Restart to install Skypeek x.y.z** in the tray menu and in Settings → General. Otherwise the update installs at the next start. Updates are usually small (only the changed parts download).
+- **Single-file copies** only announce a new version (a notification, and Settings → General with a link to the download page).
+- **Trust.** An update is used only if its feed (`releases.<channel>.json`) is signed with a release key built into the app (`src/Skypeek.Desktop/UpdateKeys`), and each downloaded package must match the SHA-256 listed in that feed. A changed, unsigned or wrongly signed feed is ignored, so a compromised download site cannot push code. HTTPS only.
+- **Privacy.** The check requests only the feed file; nothing from the vault or AWS is sent.
+- Turn automatic checks off in **Settings → General → Updates** (the preference sits in `vault.meta`, so it applies while locked). **Check now** checks on demand.
+
+### Releasing
+
+One-time: create the update signing key. It asks for a password (at least 12 characters), writes the password-protected private key to your application data folder (`%APPDATA%\skypeek-release\update-signing-key.pem`) and its public half to `src/Skypeek.Desktop/UpdateKeys/`, which you commit. **Back up the key file and the password**: installed copies accept updates only from that key. To rotate, add a new key, ship a release signed with the old one that trusts both, then remove the old one.
+
+```bash
+dotnet run --project tools/Skypeek.ReleaseTool -- keygen
+```
+
+Each release (Windows, PowerShell 7):
+
+```bash
+pwsh tools/publish.ps1 -Version 1.2.1
+```
+
+```bash
+pwsh tools/release-github.ps1 -Version 1.2.1
+```
+
+`publish.ps1` builds self-contained single files for Windows and Linux, packs them with [Velopack](https://velopack.io) (installer, full and delta update packages), signs each feed (it asks for the key password, or reads `SKYPEEK_SIGNING_PASSWORD`) and writes `dist\upload` (the release files, with `SHA256SUMS.txt`) and `dist\site` (the download page). `dist\releases` keeps Velopack's history between runs so the next release includes delta updates; keep it on the release machine.
+
+`release-github.ps1` checks the feed signatures, creates the GitHub release `v<version>` with those files and deploys the page to GitHub Pages (`gh-pages` branch, one fresh commit, no binaries: its links point at the latest release). `-Domain downloads.example.com` serves the page on your own domain (DNS: a CNAME record to `nickolsky.github.io`). The update address stays `https://github.com/nickolsky/skypeek/releases/latest/download`, so a domain can be added or changed without rebuilding; `-UpdateUrl` on `publish.ps1` moves feeds and packages elsewhere (then host the files there as well).
+
+For macOS, run `tools/package-macos.sh` on a Mac (the script's comments cover signing and notarization) and add its files from `dist/upload` to the release.
 
 The WPF app in `src/Skypeek.App` (Windows only) is the previous UI. It stays in the repository until the Avalonia app has been tried on Windows; both use the same vault.
 
@@ -284,7 +320,9 @@ src/Skypeek.Storage   Vault (SQLCipher + Argon2id), VaultRepository
 src/Skypeek.Desktop   Avalonia tray app (Windows, macOS, Linux): search, details, dashboard, logs, network, request log,
                       settings, lock; Platform/ has the per-OS tray, notifications, hotkey, idle, lock, autostart, clipboard
 src/Skypeek.App       previous WPF app (Windows only), kept until the Avalonia app replaces it
-packaging/            Linux install.sh, macOS Info.plist and entitlements; tools/publish.ps1, tools/package-macos.sh
+packaging/            Linux install.sh, macOS Info.plist and entitlements, the download page template (site/)
+tools/                publish.ps1 (release build), release-github.ps1 (GitHub release + Pages), package-macos.sh,
+                      Skypeek.ReleaseTool (update signing key and feed signatures)
 tests/Skypeek.Tests   guard/pipeline, architecture, redaction, credential halting, vault, health rules
 ```
 

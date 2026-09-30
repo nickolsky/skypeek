@@ -339,6 +339,18 @@
                         <TextBlock Classes="caption" TextWrapping="Wrap" Margin="24,2,0,0"
                                    Text="Background refresh would then run with admin credentials. Prefer a ReadOnly profile plus an elevated profile used on demand." />
 
+                        <TextBlock Classes="section" Text="Updates" Margin="0,18,0,2" />
+                        <TextBlock Classes="caption" x:Name="UpdateInstall" TextWrapping="Wrap" />
+                        <CheckBox x:Name="AutoUpdate" Content="Check for updates automatically (a few minutes after start, then every 6 hours)" Margin="0,6,0,0" />
+                        <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,8,0,0">
+                            <views:IconButton x:Name="CheckUpdatesButton" Content="Check now" Symbol="ArrowSync" Click="OnCheckUpdates" />
+                            <views:IconButton x:Name="RestartToUpdateButton" Classes="accent" Content="Restart to update" Symbol="ArrowClockwise" Click="OnRestartToUpdate" IsVisible="False" />
+                            <HyperlinkButton x:Name="DownloadPageLink" Content="Download page" VerticalAlignment="Center" Click="OnOpenDownloadPage" IsVisible="False" />
+                        </StackPanel>
+                        <TextBlock Classes="caption" x:Name="UpdateStatus" Margin="0,6,0,0" TextWrapping="Wrap" />
+                        <TextBlock Classes="caption" TextWrapping="Wrap" Margin="0,4,0,0"
+                                   Text="Updates are accepted only when signed with the Skypeek release key; the check sends nothing but the request itself (no vault data)." />
+
                         <TextBlock Classes="caption" x:Name="CredentialsPath" Margin="0,18,0,0" TextWrapping="Wrap" />
                     </StackPanel>
                 </ScrollViewer>

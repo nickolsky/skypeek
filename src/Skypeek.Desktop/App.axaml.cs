@@ -12,6 +12,7 @@ using Skypeek.Core.Logging;
 using Skypeek.Core.Services;
 using Skypeek.Desktop.Infrastructure;
 using Skypeek.Desktop.Platform;
+using Skypeek.Desktop.Updates;
 using Skypeek.Desktop.Views;
 using Skypeek.Storage;
 
@@ -36,6 +37,9 @@ public partial class App : Application
     private GlobalHotkey? _hotkey;
     private TrayIcon? _tray;
     private NativeMenuItem? _problemsItem;
+    private NativeMenu? _trayMenu;
+    private NativeMenuItem? _updateItem;
+    private NativeMenuItemSeparator? _updateSeparator;
     private DispatcherTimer? _idleTimer;
     private DispatcherTimer? _statusDebounce;
     private SessionLockMonitor? _lockMonitor;
@@ -60,6 +64,9 @@ public partial class App : Application
     public IClassicDesktopStyleApplicationLifetime? Desktop => ApplicationLifetime as IClassicDesktopStyleApplicationLifetime;
 
     /// <summary>The main window when it is shown (owner for dialogs).</summary>
+    /// <summary>Update checks and installs (null in the render harness).</summary>
+    public UpdateService? Updates { get; private set; }
+
     public Window? VisibleMain => _main is { IsVisible: true } main ? main : null;
 
     public override void Initialize()
@@ -125,6 +132,11 @@ public partial class App : Application
 
         DesktopNotifier.Initialize();
         DesktopNotifier.Activated += () => Dispatcher.UIThread.Post(() => RequestUi(UiTarget.Problems));
+        Updates = new UpdateService(() => UpdateService.AutoCheckSetting(VaultDirectory),
+            (title, message) => new DesktopNotifier(() => false).Notify(title, message));
+        Updates.Changed += RefreshUpdateItem;
+        RefreshUpdateItem();
+
         _lockMonitor = new SessionLockMonitor();
         _lockMonitor.Locked += () => Dispatcher.UIThread.Post(() =>
         {
@@ -150,7 +162,7 @@ public partial class App : Application
 
     private void CreateTray()
     {
-        var menu = new NativeMenu();
+        var menu = _trayMenu = new NativeMenu();
         _problemsItem = Item("Problems (0)", () => RequestUi(UiTarget.Problems));
         menu.Items.Add(_problemsItem);
         menu.Items.Add(new NativeMenuItemSeparator());
@@ -179,6 +191,31 @@ public partial class App : Application
             item.Click += (_, _) => action();
             return item;
         }
+    }
+
+    /// <summary>A "restart to install" item at the top of the tray menu while a downloaded update waits.</summary>
+    private void RefreshUpdateItem()
+    {
+        if (_trayMenu is null || Updates is null)
+            return;
+        var ready = Updates.Stage == UpdateStage.Ready;
+        if (ready && _updateItem is null)
+        {
+            _updateItem = new NativeMenuItem();
+            _updateItem.Click += (_, _) => Updates.RestartToUpdate();
+            _updateSeparator = new NativeMenuItemSeparator();
+            _trayMenu.Items.Insert(0, _updateSeparator);
+            _trayMenu.Items.Insert(0, _updateItem);
+        }
+        else if (!ready && _updateItem is not null)
+        {
+            _trayMenu.Items.Remove(_updateItem);
+            _trayMenu.Items.Remove(_updateSeparator!);
+            _updateItem = null;
+            _updateSeparator = null;
+        }
+        if (_updateItem is not null)
+            _updateItem.Header = $"Restart to install {AppInfo.Name} {Updates.NewVersion}";
     }
 
     private void ScheduleStatusRefresh()
@@ -435,6 +472,7 @@ public partial class App : Application
         if (_main is not null)
             _main.AllowClose = true;
         _lockMonitor?.Dispose();
+        Updates?.Dispose();
         Session?.Dispose();
         _hotkey?.Dispose();
         _tray?.Dispose();

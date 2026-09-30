@@ -76,6 +76,19 @@ public class VaultTests
     }
 
     [Fact]
+    public void Update_check_preference_is_readable_while_locked_and_survives_a_password_change()
+    {
+        using var dir = new TempDir();
+        using (var vault = Vault.Create(dir.Path, "old", "Win+Alt+A"))
+        {
+            Assert.True(Vault.ReadMeta(dir.Path)!.CheckForUpdates);
+            vault.SetCheckForUpdates(false);
+            vault.ChangePassword("old", "new");
+        }
+        Assert.False(Vault.ReadMeta(dir.Path)!.CheckForUpdates);
+    }
+
+    [Fact]
     public void Catalog_snapshot_keeps_first_seen_and_marks_baseline()
     {
         using var dir = new TempDir();

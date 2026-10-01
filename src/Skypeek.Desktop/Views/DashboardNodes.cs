@@ -89,8 +89,9 @@ public sealed record Gauge(string Label, double? Percent, string Text, HealthLev
 {
     public bool HasBar => Percent is not null;
 
+    /// <summary>The last 5 minutes, or the average over the poll's period when metrics are read rarely ("avg").</summary>
     public static Gauge? For(string label, MetricEvaluation? metric, string? text = null) =>
-        metric?.Current is { } value ? new Gauge(label, value, text ?? $"{value:0}%", Of(metric)) : null;
+        metric?.Headline is { } value ? new Gauge(label, value, text ?? (metric.ShowsAverage ? $"{value:0}% avg" : $"{value:0}%"), Of(metric)) : null;
 
     /// <summary>Only threshold breaches colour a bar; otherwise it is green.</summary>
     public static HealthLevel Of(MetricEvaluation? metric) => metric?.Level is HealthLevel.Warn or HealthLevel.Critical ? metric.Level : HealthLevel.Ok;
@@ -369,7 +370,8 @@ public static class DashboardTreeBuilder
                 continue;
 
             var costs = target.CostEnabled || target.CostExplorerEnabled ? AddCosts(kept, session) : 0;
-            var nat = session.Costs.NatEstimate(target);
+            // NAT gateways, endpoints and public IPs (Network tab), and the secrets and Advanced parameters.
+            var nat = Combine(session.Costs.NetworkEstimate(target), session.Costs.CatalogEstimate(target));
             var actual = target.CostExplorerEnabled ? session.Costs.Get(target.Id)?.Actual : null;
             var costText = string.Join(" · ", new[]
             {
@@ -471,6 +473,9 @@ public static class DashboardTreeBuilder
     }
 
     /// <summary>Info-only resources keep their colour but count as nothing (and do not colour their group).</summary>
+    private static CostEstimate? Combine(CostEstimate? a, CostEstimate? b) =>
+        a is null ? b : b is null ? a : new CostEstimate(a.MonthlyUsd + b.MonthlyUsd, $"{a.Basis}; {b.Basis}", a.Complete && b.Complete);
+
     private static void MarkMuted(DashNode node)
     {
         node.IsMuted = true;
@@ -1121,7 +1126,7 @@ public static class DashboardTreeBuilder
             Costs = Job(JobKind.Costs),
             Estimated = !target.CostEnabled ? null
                 : $"~{CostRules.Money(estimated + (nat?.MonthlyUsd ?? 0))}/month on-demand list price for the resources on the dashboard"
-                  + (nat is not null ? $" (including {nat.Text} for NAT gateways)" : "")
+                  + (nat is not null ? $" (including {nat.Text}: {nat.Basis})" : "")
                   + ". Excludes EBS, data transfer, load balancer capacity units, backups and discounts (savings plans, reserved instances)."
                   + (pricesPending > 0 ? $" {pricesPending} price(s) not read yet." : ""),
             Billed = actual is null ? (target.CostExplorerEnabled ? "Not read yet." : null)

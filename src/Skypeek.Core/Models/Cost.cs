@@ -149,6 +149,14 @@ public static class CostRules
         version is null ? null : majors.Where(m => version == m || version.StartsWith(m + ".", StringComparison.Ordinal)).MaxBy(m => m.Length);
     public static string CacheKey(string nodeType, string engine) => $"cache|{nodeType}|{engine}";
     public const string NatKey = "nat|hours";
+    /// <summary>A public IPv4 address, in use or idle (AWS charges both the same).</summary>
+    public const string Ipv4Key = "ipv4|hours";
+    /// <summary>An interface VPC endpoint, per hour and zone.</summary>
+    public const string EndpointKey = "vpce|hours";
+    public const string VpnKey = "vpn|hours";
+    public const string SecretKey = "secret|month";
+    /// <summary>An Advanced-tier parameter, priced per hour.</summary>
+    public const string AdvancedParameterKey = "ssmadv|hour";
     public static string LoadBalancerKey(string type) => $"elb|{type}";
     public const string FargateCpuKey = "fargate|vcpu";
     public const string FargateMemoryKey = "fargate|gb";
@@ -180,8 +188,18 @@ public static class CostRules
                 UsageType: $"RDS:{UsagePrefix(parts[3])}GP3-Throughput", Unit: "MBPS-Mo"),
             "cache" => new PriceQuery(key, "AmazonElastiCache", F(("instanceType", parts[1]), ("cacheEngine", CacheEngine(parts[2])), ("productFamily", "Cache Instance")), Unit: "Hrs"),
             "nat" => new PriceQuery(key, "AmazonEC2", F(("productFamily", "NAT Gateway")), UsageType: "NatGateway-Hours", Unit: "Hrs"),
-            "elb" => new PriceQuery(key, "AWSELB", F(("productFamily", parts[1] == "network" ? "Load Balancer-Network" : "Load Balancer-Application")),
-                UsageType: "LoadBalancerUsage", Unit: "Hrs"),
+            "elb" => new PriceQuery(key, "AWSELB", F(("productFamily", parts[1] switch
+                {
+                    "network" => "Load Balancer-Network",
+                    "gateway" => "Load Balancer-Gateway",
+                    _ => "Load Balancer-Application",
+                })), UsageType: "LoadBalancerUsage", Unit: "Hrs"),
+            // These usage types carry a region prefix (USE1-…), so they are matched by "contains".
+            "ipv4" => new PriceQuery(key, "AmazonVPC", F(("usagetype~", "PublicIPv4:InUseAddress")), UsageType: "PublicIPv4:InUseAddress", Unit: "Hrs"),
+            "vpce" => new PriceQuery(key, "AmazonVPC", F(("usagetype~", "VpcEndpoint-Hours")), UsageType: "VpcEndpoint-Hours", Unit: "Hrs"),
+            "vpn" => new PriceQuery(key, "AmazonVPC", F(("usagetype~", "VPN-Usage-Hours:ipsec.1")), UsageType: "VPN-Usage-Hours:ipsec.1", Unit: "Hrs"),
+            "secret" => new PriceQuery(key, "AWSSecretsManager", F(("productFamily", "Secret")), UsageType: "AWSSecretsManager-Secrets", Unit: "Secrets"),
+            "ssmadv" => new PriceQuery(key, "AWSSystemsManager", F(("usagetype~", "PS-Advanced-Param-Tier1")), UsageType: "PS-Advanced-Param-Tier1", Unit: "Hour"),
             "fargate" => new PriceQuery(key, "AmazonECS", F(("productFamily", "Compute")),
                 UsageType: parts[1] == "vcpu" ? "Fargate-vCPU-Hours:perCPU" : "Fargate-GB-Hours", Unit: "hours"),
             _ => null,
@@ -213,7 +231,14 @@ public static class CostRules
                 yield return key;
         if (network?.NatGateways.Count > 0)
             yield return NatKey;
+        if (network is not null && (network.Interfaces.Any(i => i.PublicIps.Count > 0) || network.ElasticIps.Count > 0))
+            yield return Ipv4Key;
+        if (network?.Endpoints.Any(IsHourlyEndpoint) == true)
+            yield return EndpointKey;
     }
+
+    /// <summary>Interface and Gateway Load Balancer endpoints are billed per hour and zone; gateway endpoints (S3, DynamoDB) are free.</summary>
+    public static bool IsHourlyEndpoint(VpcEndpointInfo e) => e.Type is "Interface" or "GatewayLoadBalancer" && e.State is null or "available";
 
     public static IEnumerable<string> KeysFor(ResourceStatus r)
     {
@@ -249,7 +274,10 @@ public static class CostRules
             case CacheStatus cache when cache.Snapshot.Kind != CacheKind.Serverless && cache.Snapshot.NodeType is { } nodeType:
                 yield return CacheKey(nodeType, cache.Snapshot.Engine);
                 break;
-            case LoadBalancerStatus lb when lb.Snapshot.Type is "application" or "network":
+            case VpnConnectionStatus:
+                yield return VpnKey;
+                break;
+            case LoadBalancerStatus lb when lb.Snapshot.Type is "application" or "network" or "gateway":
                 yield return LoadBalancerKey(lb.Snapshot.Type);
                 break;
             case EcsServiceStatus ecs when IsFargate(ecs):
@@ -386,9 +414,13 @@ public static class CostRules
                     return null;
                 return new CostEstimate(hourly * HoursPerMonth * nodes, $"{nodes}× {nodeType} {Rate(hourly)}/h × 730 h; backups and data transfer not included");
             }
+            case VpnConnectionStatus vpn:
+                return vpn.Snapshot.State == "available" && Hourly(VpnKey) is { } vpnHourly
+                    ? new CostEstimate(vpnHourly * HoursPerMonth, $"VPN connection {Rate(vpnHourly)}/h × 730 h; data transfer out not included")
+                    : null;
             case LoadBalancerStatus lb:
             {
-                if (lb.Snapshot.Type is not ("application" or "network") || Hourly(LoadBalancerKey(lb.Snapshot.Type)) is not { } hourly)
+                if (lb.Snapshot.Type is not ("application" or "network" or "gateway") || Hourly(LoadBalancerKey(lb.Snapshot.Type)) is not { } hourly)
                     return null;
                 return new CostEstimate(hourly * HoursPerMonth, $"{lb.Snapshot.TypeText} {Rate(hourly)}/h × 730 h, plus capacity units (LCU/NLCU) by traffic (not included)", Complete: false);
             }
@@ -412,6 +444,68 @@ public static class CostRules
                 return new CostEstimate(0, "runs on EC2 container instances; their cost is on the instances", Complete: false);
         }
         return null;
+    }
+
+    /// <summary>
+    /// What a VPC costs by the hour, whatever runs in it: NAT gateways, interface endpoints (per zone) and public IPv4
+    /// addresses (every one, on instances, load balancers and NAT gateways alike). Data processing is not included.
+    /// </summary>
+    public static CostEstimate? VpcEstimate(NetworkSnapshot s, string vpcId, Func<string, PriceEntry?> price)
+    {
+        var parts = new List<string>();
+        double total = 0;
+        var nats = s.NatGateways.Count(n => n.VpcId == vpcId && n.State == "available");
+        if (nats > 0 && price(NatKey)?.Usd is { } nat)
+        {
+            total += nats * nat * HoursPerMonth;
+            parts.Add($"{nats} NAT gateway(s) × {Rate(nat)}/h");
+        }
+        var zones = s.Endpoints.Where(e => e.VpcId == vpcId && IsHourlyEndpoint(e)).Sum(e => Math.Max(1, e.SubnetIds.Count));
+        if (zones > 0 && price(EndpointKey)?.Usd is { } endpoint)
+        {
+            total += zones * endpoint * HoursPerMonth;
+            parts.Add($"{zones} interface endpoint zone(s) × {Rate(endpoint)}/h");
+        }
+        var ips = s.Interfaces.Where(i => i.VpcId == vpcId).SelectMany(i => i.PublicIps).Distinct().Count();
+        if (ips > 0 && price(Ipv4Key)?.Usd is { } ipv4)
+        {
+            total += ips * ipv4 * HoursPerMonth;
+            parts.Add($"{ips} public IPv4 address(es) × {Rate(ipv4)}/h");
+        }
+        return parts.Count == 0 ? null
+            : new CostEstimate(total, $"{string.Join(" + ", parts)} × 730 h; data processed and transferred not included", Complete: false);
+    }
+
+    /// <summary>Elastic IPs that are not associated (billed while idle, outside any VPC's total).</summary>
+    public static CostEstimate? IdleAddressEstimate(NetworkSnapshot s, Func<string, PriceEntry?> price) =>
+        s.ElasticIps.Count(a => !a.IsAssociated) is var idle and > 0 && price(Ipv4Key)?.Usd is { } ipv4
+            ? new CostEstimate(idle * ipv4 * HoursPerMonth, $"{idle} idle Elastic IP(s) × {Rate(ipv4)}/h × 730 h")
+            : null;
+
+    /// <summary>Every VPC of the target plus idle Elastic IPs.</summary>
+    public static CostEstimate? NetworkEstimate(NetworkSnapshot s, Func<string, PriceEntry?> price)
+    {
+        var parts = s.Vpcs.Select(v => VpcEstimate(s, v.Id, price)).Append(IdleAddressEstimate(s, price)).Where(e => e is not null).ToList();
+        return parts.Count == 0 ? null
+            : new CostEstimate(parts.Sum(p => p!.MonthlyUsd), "NAT gateways, interface endpoints and public IPv4 addresses (Network tab)", Complete: false);
+    }
+
+    /// <summary>Secrets ($ per secret per month) and Advanced-tier parameters; Standard parameters are free.</summary>
+    public static CostEstimate? CatalogEstimate(int secrets, int advancedParameters, Func<string, PriceEntry?> price)
+    {
+        var parts = new List<string>();
+        double total = 0;
+        if (secrets > 0 && price(SecretKey)?.Usd is { } secret)
+        {
+            total += secrets * secret;
+            parts.Add($"{secrets} secret(s) × {Money(secret)}");
+        }
+        if (advancedParameters > 0 && price(AdvancedParameterKey)?.Usd is { } hourly)
+        {
+            total += advancedParameters * hourly * HoursPerMonth;
+            parts.Add($"{advancedParameters} Advanced parameter(s) × {Money(hourly * HoursPerMonth)}");
+        }
+        return parts.Count == 0 ? null : new CostEstimate(total, $"{string.Join(" + ", parts)} a month; API calls by your applications not included");
     }
 
     public static CostEstimate? NatEstimate(NetworkSnapshot network, Func<string, PriceEntry?> price) =>

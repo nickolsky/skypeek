@@ -56,6 +56,29 @@ public sealed class CostService
     /// <summary>A cached list price (per hour, per GB-month…) when estimates are on for the target.</summary>
     public double? UnitPrice(Target target, string key) => target.CostEnabled ? Price(target.Id, key)?.Usd : null;
 
+    /// <summary>Secrets and Advanced parameters per target (set by the session from the catalog).</summary>
+    public Func<long, (int Secrets, int AdvancedParameters)> CatalogCounts { get; set; } = _ => (0, 0);
+
+    private Func<string, PriceEntry?>? Prices(Target target) => target.CostEnabled ? key => Price(target.Id, key) : null;
+
+    /// <summary>NAT gateways, interface endpoints and public IPv4 addresses of all the target's VPCs.</summary>
+    public CostEstimate? NetworkEstimate(Target target) =>
+        Prices(target) is { } price && _network.Get(target.Id) is { } network ? CostRules.NetworkEstimate(network, price) : null;
+
+    public CostEstimate? VpcEstimate(Target target, string vpcId) =>
+        Prices(target) is { } price && _network.Get(target.Id) is { } network ? CostRules.VpcEstimate(network, vpcId, price) : null;
+
+    public CostEstimate? IdleAddressEstimate(Target target) =>
+        Prices(target) is { } price && _network.Get(target.Id) is { } network ? CostRules.IdleAddressEstimate(network, price) : null;
+
+    public CostEstimate? CatalogEstimate(Target target)
+    {
+        if (Prices(target) is not { } price)
+            return null;
+        var (secrets, advanced) = CatalogCounts(target.Id);
+        return CostRules.CatalogEstimate(secrets, advanced, price);
+    }
+
     /// <summary>NAT gateways of the target (they are not dashboard resources).</summary>
     public CostEstimate? NatEstimate(Target target) =>
         target.CostEnabled && _network.Get(target.Id) is { } network ? CostRules.NatEstimate(network, key => Price(target.Id, key)) : null;
@@ -66,7 +89,10 @@ public sealed class CostService
         if (!target.CostEnabled || _health.Get(target.Id) is not { } health)
             return [];
         var cached = Get(target.Id)?.Prices ?? new();
-        return CostRules.KeysFor(health, _network.Get(target.Id)).Distinct()
+        var (secrets, advanced) = CatalogCounts(target.Id);
+        IEnumerable<string> catalogKeys = [.. secrets > 0 ? [CostRules.SecretKey] : Array.Empty<string>(),
+            .. advanced > 0 ? [CostRules.AdvancedParameterKey] : Array.Empty<string>()];
+        return CostRules.KeysFor(health, _network.Get(target.Id)).Concat(catalogKeys).Distinct()
             .Where(key => !cached.TryGetValue(key, out var p) || nowUtc - p.FetchedUtc > (p.Usd is null ? MissingPriceRetry : PriceMaxAge))
             .Where(key => CostRules.QueryFor(key, target.Region) is not null)
             .ToList();
@@ -115,8 +141,17 @@ public sealed class CostService
             }
             catch (Exception ex) when (ex is not CredentialsUnavailableException and not OperationCanceledException)
             {
-                errors.Add($"price list: {ex.Message}");
-                break; // Usually a permission problem; the rest would fail the same way.
+                var code = ex.GetType().GetProperty("ErrorCode")?.GetValue(ex) as string ?? "";
+                if (code.Contains("AccessDenied", StringComparison.OrdinalIgnoreCase))
+                {
+                    errors.Add($"price list: {ex.Message}");
+                    break; // A permission problem: the rest would fail the same way.
+                }
+                // One price that fails (throttling, an odd product) must not keep the others from loading: try it
+                // again tomorrow, and slow down a little in case the Price List is throttling.
+                snapshot.Prices[key] = new PriceEntry { FetchedUtc = now, Description = $"not available: {ex.Message}" };
+                errors.Add($"price of {key}: {ex.Message}");
+                await Task.Delay(TimeSpan.FromSeconds(1), ct);
             }
         }
 

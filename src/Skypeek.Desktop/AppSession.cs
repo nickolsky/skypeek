@@ -32,6 +32,11 @@ public sealed class AppSession : IDisposable
         Health = new HealthService(Gateway, Repository, Settings, notifier);
         Network = new NetworkService(Gateway, Repository, Settings);
         Costs = new CostService(Gateway, Repository, Settings, Health, Network);
+        Costs.CatalogCounts = targetId =>
+        {
+            var items = Repository.LoadAll().Where(i => i.TargetId == targetId).ToList();
+            return (items.Count(i => i.Kind == CatalogKind.Secret), items.Count(i => i.Kind == CatalogKind.Parameter && i.Tier is "Advanced"));
+        };
         Scheduler = new TargetScheduler(Settings, Monitor, Repository, log, ExecuteJob, Activity);
 
         Monitor.ProfileHalted += p => notifier.Notify("AWS credentials rejected",

@@ -60,8 +60,12 @@ public partial class CatalogView : UserControl
         RunSearch();
     });
 
+    /// <summary>What the listed secrets and Advanced parameters cost a month (recomputed when the lists change).</summary>
+    private double _catalogMonthly;
+
     private void RefreshFilters()
     {
+        _catalogMonthly = _session.Settings.Targets.Select(t => _session.Costs.CatalogEstimate(t)?.MonthlyUsd ?? 0).Sum();
         var targets = _session.Settings.Targets;
         List<TargetOption> targetOptions = [new("All targets", null), .. targets.Select(t => new TargetOption(t.DisplayName, t.Id))];
         var selectedTarget = (TargetFilter.SelectedItem as TargetOption)?.TargetId;
@@ -106,7 +110,8 @@ public partial class CatalogView : UserControl
             : total == 0
                 ? "The catalog is empty. Lists download on the configured schedule — use Dashboard → Refresh catalogs to fetch now."
                 : "No matches.";
-        StatusText.Text = $"{results.Count} of {total} items · ↑↓ select · Ctrl+C copy name · Ctrl+F search · Esc hide";
+        var monthly = _catalogMonthly;
+        StatusText.Text = $"{results.Count} of {total} items{(monthly > 0 ? $" · secrets and Advanced parameters ≈ {CostRules.Money(monthly)}/month" : "")} · ↑↓ select · Ctrl+C copy name · Ctrl+F search · Esc hide";
     }
 
     private void OnNewSecret(object? sender, RoutedEventArgs e) => _ = CreateAsync(CatalogKind.Secret);

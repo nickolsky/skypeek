@@ -208,6 +208,21 @@ public partial class DetailsView : UserControl
 
     private static string Describe(Exception ex) => ex is AmazonServiceException a ? $"{a.ErrorCode}: {a.Message}" : ex.Message;
 
+    /// <summary>List price per month: the region's price when cost estimates are on for the target (else the usual one).</summary>
+    private string PriceText(CatalogItem item)
+    {
+        if (CurrentTarget is not { } target)
+            return "";
+        if (item.Kind == CatalogKind.Parameter && item.Tier is not ("Advanced" or "Intelligent-Tiering"))
+            return "free (Standard tier)";
+        var key = item.Kind == CatalogKind.Secret ? CostRules.SecretKey : CostRules.AdvancedParameterKey;
+        var monthly = _session.Costs.UnitPrice(target, key) is { } usd ? item.Kind == CatalogKind.Secret ? usd : usd * CostRules.HoursPerMonth : (double?)null;
+        var usual = item.Kind == CatalogKind.Secret ? 0.40 : 0.05;
+        return monthly is { } m
+            ? $"{CostRules.Money(m)} a month (list price in {target.Region}; plus API calls)"
+            : $"about {CostRules.Money(usual)} a month (usual list price; turn on cost estimates for the target for its region's price)";
+    }
+
     private void RenderMetadata()
     {
         if (_item is null)
@@ -227,6 +242,7 @@ public partial class DetailsView : UserControl
         Add("Version", _item.Version);
         Add("KMS key", _item.KmsKeyId);
         Add("Rotation", _item.RotationEnabled is null ? null : _item.RotationEnabled.Value ? "enabled" : "disabled");
+        Add("Price", PriceText(_item));
         Add("Last modified", _item.LastModified?.ToLocalTime().ToString("f"));
         Add("Modified by", _item.LastModifiedBy);
         Add("Last accessed", _item.LastAccessed?.ToLocalTime().ToString("D"));

@@ -126,6 +126,7 @@
                 <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="Contains" />
                     <TextBlock Classes="value"><TextBlock.Text><MultiBinding StringFormat="{}{0} subnet(s) · {1} interface(s) · {2} security group(s)"><Binding Path="Subnets" /><Binding Path="Interfaces" /><Binding Path="Groups" /></MultiBinding></TextBlock.Text></TextBlock></StackPanel>
                 <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="Internet" /><TextBlock Classes="value" Text="{Binding AccessSummary}" MaxWidth="520" /></StackPanel>
+                <StackPanel Orientation="Horizontal"><TextBlock Classes="label" Text="Cost" /><TextBlock Classes="value" Text="{Binding CostText}" MaxWidth="440" /></StackPanel>
                 <TextBlock Classes="section" Text="Resource map" />
                 <views:VpcMapView DataContext="{Binding Map}" />
             </StackPanel>

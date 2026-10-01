@@ -32,7 +32,10 @@ public sealed partial class AwsGateway
                 {
                     ServiceCode = query.ServiceCode,
                     FormatVersion = "aws_v1",
-                    Filters = query.Filters.Select(f => new Pricing.Filter { Type = FilterType.TERM_MATCH, Field = f.Key, Value = f.Value }).ToList(),
+                    // "field~" matches part of the value (usage types carry a region prefix, e.g. USE1-VpcEndpoint-Hours).
+                    Filters = query.Filters.Select(f => f.Key.EndsWith('~')
+                        ? new Pricing.Filter { Type = FilterType.CONTAINS, Field = f.Key[..^1], Value = f.Value }
+                        : new Pricing.Filter { Type = FilterType.TERM_MATCH, Field = f.Key, Value = f.Value }).ToList(),
                     MaxResults = 100,
                     NextToken = token,
                 }, ct);

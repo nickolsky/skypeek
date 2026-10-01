@@ -156,7 +156,8 @@ public static partial class HealthRules
         return new MetricEvaluation
         {
             MetricName = metricName,
-            Current = last.Value,
+            // The last 5 minutes (one point at a 5-minute period), steadier than the very last minute.
+            Current = sorted.Where(p => p.Timestamp > last.Timestamp.AddMinutes(-5)).Average(p => p.Value),
             Average = sorted.Average(p => p.Value),
             Peak = sorted.Max(p => p.Value),
             PeriodSeconds = period,

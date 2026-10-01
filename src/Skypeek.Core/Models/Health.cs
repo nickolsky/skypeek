@@ -22,8 +22,19 @@ public sealed class MetricEvaluation
     public HealthLevel Level { get; init; } = HealthLevel.Unknown;
     public IReadOnlyList<MetricPoint> Points { get; init; } = [];
 
+    /// <summary>How much time the points cover (the metrics poll reads its interval back, 1 to 6 hours).</summary>
     [JsonIgnore]
-    public string Display => Current is null ? "n/a" : $"{Current:0}% (last hour: avg {Average:0}, peak {Peak:0})";
+    public int WindowMinutes => Points.Count < 2 ? 60 : (int)Math.Round((Points[^1].Timestamp - Points[0].Timestamp).TotalMinutes + PeriodSeconds / 60.0);
+    /// <summary>Polled rarely (a window over 90 minutes): the average over it says more than the last minutes.</summary>
+    [JsonIgnore] public bool ShowsAverage => WindowMinutes > 90;
+    /// <summary>The value gauges show: the last 5 minutes, or the window's average when polled rarely.</summary>
+    [JsonIgnore] public double? Headline => ShowsAverage ? Average : Current;
+    [JsonIgnore]
+    public string WindowText => WindowMinutes >= 90 ? $"{WindowMinutes / 60.0:0.#} h" : "hour";
+    [JsonIgnore]
+    public string Display => Current is null ? "n/a"
+        : ShowsAverage ? $"avg {Average:0}% over the last {WindowText} (peak {Peak:0}, last 5 min {Current:0})"
+        : $"{Current:0}% (last 5 min; last hour: avg {Average:0}, peak {Peak:0})";
 }
 
 public sealed class AlarmInfo

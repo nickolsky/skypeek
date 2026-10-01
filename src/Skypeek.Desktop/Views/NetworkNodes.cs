@@ -10,8 +10,9 @@ public sealed record NetworkTargetDetail(Target Target, NetworkSnapshot? Snapsho
         : $"{s.Vpcs.Count} VPC(s), {s.Subnets.Count} subnet(s), {s.Interfaces.Count} network interface(s), {s.SecurityGroups.Count} security group(s), {s.ElasticIps.Count} Elastic IP(s).";
 }
 
-public sealed record VpcDetail(Target Target, VpcInfo Vpc, int Subnets, int Interfaces, int Groups, VpcMap Map, string AccessSummary)
+public sealed record VpcDetail(Target Target, VpcInfo Vpc, int Subnets, int Interfaces, int Groups, VpcMap Map, string AccessSummary, CostEstimate? Cost = null)
 {
+    public string CostText => Cost is { } c ? $"{c.Text}: {c.Basis}" : "Turn on cost estimates for this target (Settings → Accounts & regions → Costs) to see what it costs.";
     public string ConsoleUrl => $"https://{Target.Region}.console.aws.amazon.com/vpcconsole/home?region={Target.Region}#VpcDetails:VpcId={Vpc.Id}";
     public string CidrText => string.Join(", ", Vpc.Cidrs.Concat(Vpc.Ipv6Cidrs));
 }
@@ -115,13 +116,19 @@ public static class NetworkTreeBuilder
                 Payload = new NetworkTargetDetail(target, snapshot, status),
             };
             if (snapshot is not null)
-                AddVpcs(root, target, snapshot, session.Costs.UnitPrice(target, CostRules.NatKey), uses);
+            {
+                AddVpcs(root, target, snapshot, session.Costs.UnitPrice(target, CostRules.NatKey), uses, vpcId => session.Costs.VpcEstimate(target, vpcId),
+                    session.Costs.IdleAddressEstimate(target));
+                if (session.Costs.NetworkEstimate(target) is { } total)
+                    root.Right = $"{total.Text} network";
+            }
             roots.Add(root);
         }
         return roots;
     }
 
-    private static void AddVpcs(DashNode root, Target target, NetworkSnapshot s, double? natHourly, Dictionary<string, List<ResourceUse>> uses)
+    private static void AddVpcs(DashNode root, Target target, NetworkSnapshot s, double? natHourly, Dictionary<string, List<ResourceUse>> uses,
+        Func<string, CostEstimate?> vpcCost, CostEstimate? idleAddresses)
     {
         var canEdit = target.ElevatedProfileName is { Length: > 0 };
         var groupsById = s.SecurityGroups.ToDictionary(g => g.Id);
@@ -139,15 +146,17 @@ public static class NetworkTreeBuilder
             var accessSummary = subnets.Count == 0 ? "No subnets." : $"Subnets: {string.Join(", ", byAccess)}."
                 + (s.InternetGateways.Any(g => !g.EgressOnly && g.VpcIds.Contains(vpc.Id)) ? " Has an internet gateway." : " No internet gateway.")
                 + (natIps.Count > 0 ? $" Outbound NAT traffic appears as {string.Join(", ", natIps)}." : "");
+            var cost = vpcCost(vpc.Id);
             var vpcNode = new DashNode
             {
                 Key = $"{target.Id}:vpc:{vpc.Id}",
                 Kind = NodeKind.Vpc,
                 Title = vpc.Title,
+                Right = cost?.Text,
                 Subtitle = $"{string.Join(", ", vpc.Cidrs)}{(vpc.IsDefault ? " · default VPC" : "")} · {subnets.Count} subnet(s) · {interfaces.Count} interface(s)",
                 SearchText = $"{vpc.Id} {string.Join(' ', vpc.Ipv6Cidrs)}",
                 Level = routings.Values.Any(r => r.Warning is not null || r.Access == InternetAccess.Blackhole) ? HealthLevel.Warn : HealthLevel.Ok,
-                Payload = new VpcDetail(target, vpc, subnets.Count, interfaces.Count, groups.Count, VpcMap.Build(s, vpc), accessSummary),
+                Payload = new VpcDetail(target, vpc, subnets.Count, interfaces.Count, groups.Count, VpcMap.Build(s, vpc), accessSummary, cost),
             };
 
             var subnetGroup = new DashNode
@@ -213,7 +222,7 @@ public static class NetworkTreeBuilder
                 Key = $"{target.Id}:eips",
                 Kind = NodeKind.Group,
                 Title = "Elastic IPs",
-                Right = $"{s.ElasticIps.Count}",
+                Right = idleAddresses is null ? $"{s.ElasticIps.Count}" : $"{s.ElasticIps.Count} · idle ones {idleAddresses.Text}",
                 Payload = new MessageDetail("Static public addresses of the account in this region. An Elastic IP that is not associated is billed while idle."),
             };
             var interfacesById = s.Interfaces.ToDictionary(i => i.Id);

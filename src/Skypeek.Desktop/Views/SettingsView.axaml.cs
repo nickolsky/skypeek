@@ -42,7 +42,8 @@ public partial class SettingsView : UserControl
     private static readonly IntervalOption[] HealthOptions =
         [new("Off", 0), new("1 minute", 1), new("2 minutes", 2), new("5 minutes", 5), new("15 minutes", 15), new("30 minutes", 30)];
     private static readonly IntervalOption[] MetricsOptions =
-        [new("Off", 0), new("1 minute", 1), new("5 minutes", 5), new("15 minutes", 15), new("30 minutes", 30)];
+        [new("Off", 0), new("1 minute", 1), new("5 minutes", 5), new("15 minutes", 15), new("30 minutes", 30),
+         new("Every hour", 60), new("Every 3 hours", 180), new("Every 6 hours", 360)];
     private static readonly IntervalOption[] NetworkOptions =
         [new("Only on demand", 0), new("Every 15 minutes", 15), new("Every hour", 60), new("Every 6 hours", 360), new("Daily", 1440)];
 

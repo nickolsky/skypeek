@@ -10,6 +10,18 @@ public sealed class HealthService
 {
     private const int MaxEventsPerEnvironment = 30;
     private static readonly TimeSpan MetricsWindow = TimeSpan.FromMinutes(60);
+    private static readonly TimeSpan MaxMetricsWindow = TimeSpan.FromHours(6);
+
+    /// <summary>
+    /// Each metrics poll reads back to the previous one (at least an hour, at most 6), so a rare poll still sees the
+    /// whole period: averages and peaks cover it. Beyond an hour, 5-minute points keep the answer small (CloudWatch
+    /// charges per metric, not per point).
+    /// </summary>
+    private static (TimeSpan Window, int PeriodSeconds) MetricsWindowFor(Target target)
+    {
+        var window = TimeSpan.FromMinutes(Math.Clamp(target.MetricsIntervalMinutes, (int)MetricsWindow.TotalMinutes, (int)MaxMetricsWindow.TotalMinutes));
+        return (window, window > MetricsWindow ? 300 : 60);
+    }
     private static readonly TimeSpan AgentMetricsCacheTtl = TimeSpan.FromMinutes(60);
 
     private readonly IAwsGateway _gateway;
@@ -311,13 +323,14 @@ public sealed class HealthService
         var now = DateTime.UtcNow;
         var errors = new List<string>();
 
-        var (queries, bindings) = await BuildMetricQueriesAsync(target, health, ct, skipHidden: true);
+        var (window, period) = MetricsWindowFor(target);
+        var (queries, bindings) = await BuildMetricQueriesAsync(target, health, ct, skipHidden: true, period);
         IReadOnlyDictionary<string, IReadOnlyList<MetricPoint>> data = new Dictionary<string, IReadOnlyList<MetricPoint>>();
         if (queries.Count > 0)
         {
             try
             {
-                data = await _gateway.GetMetricDataAsync(target, queries, now - MetricsWindow, now, ct);
+                data = await _gateway.GetMetricDataAsync(target, queries, now - window, now, ct);
             }
             catch (Exception ex) when (ex is not CredentialsUnavailableException and not OperationCanceledException)
             {
@@ -488,10 +501,11 @@ public sealed class HealthService
 
         // Metrics for just this resource.
         var settings = _settings.Settings;
-        var (queries, bindings) = await BuildMetricQueriesAsync(target, single, ct);
+        var (window, period) = MetricsWindowFor(target);
+        var (queries, bindings) = await BuildMetricQueriesAsync(target, single, ct, periodSeconds: period);
         if (queries.Count > 0)
         {
-            var data = await _gateway.GetMetricDataAsync(target, queries, now - MetricsWindow, now, ct);
+            var data = await _gateway.GetMetricDataAsync(target, queries, now - window, now, ct);
             ApplyMetrics(target, single, bindings, data, settings, now, haveData: true);
         }
 
@@ -678,7 +692,8 @@ public sealed class HealthService
         {
             if (!_state.TryGetValue(target.Id, out var h))
                 continue;
-            var now = DateTime.UtcNow;
+            // Judged as of the last metrics poll: with an hourly poll the points are an hour old by design, not stale.
+            var now = h.MetricsUpdated ?? DateTime.UtcNow;
             foreach (var ecs in h.Ecs)
             {
                 var th = HealthRules.ResolveThresholds(settings, target, ecs.ResourceKey, isEcs: true);
@@ -1032,7 +1047,8 @@ public sealed class HealthService
     }
 
     /// <param name="skipHidden">Target-wide polls skip resources hidden from the dashboard (no cost); a single refresh does not.</param>
-    private async Task<(List<MetricQuery>, Dictionary<string, Binding>)> BuildMetricQueriesAsync(Target target, TargetHealth health, CancellationToken ct, bool skipHidden = false)
+    private async Task<(List<MetricQuery>, Dictionary<string, Binding>)> BuildMetricQueriesAsync(Target target, TargetHealth health, CancellationToken ct, bool skipHidden = false,
+        int periodSeconds = 60)
     {
         var queries = new List<MetricQuery>();
         var bindings = new Dictionary<string, Binding>();
@@ -1042,7 +1058,7 @@ public sealed class HealthService
             if (skipHidden && binding.Resource.IsHidden)
                 return;
             var id = $"m{queries.Count}";
-            queries.Add(new MetricQuery(id, ns, metric, dims, Stat: stat));
+            queries.Add(new MetricQuery(id, ns, metric, dims, periodSeconds, stat));
             bindings[id] = binding;
         }
 

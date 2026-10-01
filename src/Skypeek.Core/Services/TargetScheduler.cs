@@ -76,9 +76,10 @@ public sealed class TargetScheduler : IDisposable
                 state.LastSuccess = run.FinishedAt;
         }
 
-        // Health and metrics are cheap and should be fresh after a restart; lists and network data are cached.
+        // Health is free and should be fresh after a restart. Metrics are billed per metric, and their last values are
+        // cached with the health snapshot, so they wait for their interval like lists and network data.
         foreach (var ((_, kind), state) in _jobs)
-            if (kind is JobKind.Health or JobKind.Metrics)
+            if (kind is JobKind.Health)
                 state.ForceDue = true;
 
         _timer = new Timer(_ => Tick(), null, TimeSpan.FromSeconds(2), TickInterval);

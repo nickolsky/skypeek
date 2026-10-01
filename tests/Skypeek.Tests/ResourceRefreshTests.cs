@@ -687,4 +687,46 @@ public class ResourceRefreshTests
         Assert.Equal(55, after.Cpu?.Current);
         Assert.NotNull(after.RefreshedUtc);
     }
+
+    private sealed class RunStore(params SyncRun[] runs) : ISyncRunStore
+    {
+        public void Record(SyncRun run) { }
+        public IReadOnlyList<SyncRun> LatestRuns() => runs;
+    }
+
+    [Fact]
+    public async Task Restart_refreshes_health_but_waits_for_the_metrics_interval()
+    {
+        using var dir = new TempDir();
+        var path = dir.File("credentials");
+        await File.WriteAllTextAsync(path, CredentialsFile.Content("t1"));
+        using var monitor = new Skypeek.Core.Credentials.CredentialMonitor(path, new MemoryHaltStore(), new FakeValidator(), _ => "us-east-1");
+        await monitor.StartAsync(watch: false);
+        var stores = new MemoryStores();
+        var target = stores.Targets[0];
+        target.MetricsIntervalMinutes = 360;
+        var settings = new SettingsService(stores);
+        var tenMinutesAgo = DateTime.UtcNow.AddMinutes(-10);
+        var runs = new RunStore(
+            new SyncRun(target.Id, nameof(JobKind.Health), tenMinutesAgo, tenMinutesAgo, true, 5, null),
+            new SyncRun(target.Id, nameof(JobKind.Metrics), tenMinutesAgo, tenMinutesAgo, true, 5, null));
+        var ran = new System.Collections.Concurrent.ConcurrentQueue<JobKind>();
+        var healthRan = new TaskCompletionSource();
+        using var scheduler = new TargetScheduler(settings, monitor, runs, new CapturingSink(), (_, kind, _) =>
+        {
+            ran.Enqueue(kind);
+            if (kind == JobKind.Health)
+                healthRan.TrySetResult();
+            return Task.FromResult(0);
+        });
+
+        scheduler.Start();
+        await healthRan.Task.WaitAsync(TimeSpan.FromSeconds(15));
+        // Jobs started in the same pass would be running (or done) by now.
+        var metrics = scheduler.GetState(target.Id, JobKind.Metrics);
+        Assert.False(metrics.Running);
+        Assert.Equal(tenMinutesAgo, metrics.LastAttempt);
+        Assert.DoesNotContain(JobKind.Metrics, ran);
+        Assert.True(scheduler.NextDue(target, JobKind.Metrics) > DateTime.UtcNow.AddHours(5));
+    }
 }

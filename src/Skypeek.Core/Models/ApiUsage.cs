@@ -143,8 +143,9 @@ public sealed class RunningCostReport
     public IReadOnlyList<MonthCost> PreviousMonths { get; init; } = [];
 
     /// <param name="accountOf">The account of a profile (free tiers apply per account); unknown profiles count as their own.</param>
+    /// <param name="countingStartedUtc">The first paid call ever counted: in the month counting began, the counts cover only the time since.</param>
     public static RunningCostReport Build(IReadOnlyList<ApiUsageRow> usage, IReadOnlyList<TargetRunningCost> estimates,
-        Func<string?, string?> accountOf, DateTime nowUtc, DateTime? firstLoggedThisMonth)
+        Func<string?, string?> accountOf, DateTime nowUtc, DateTime? countingStartedUtc)
     {
         var month = PaidApi.MonthOf(nowUtc);
         double CostOf(IEnumerable<ApiUsageRow> rows) => rows
@@ -154,7 +155,7 @@ public sealed class RunningCostReport
         var current = usage.Where(r => r.Month == month).ToList();
         var mtd = CostOf(current);
         var monthStart = new DateTime(nowUtc.Year, nowUtc.Month, 1, 0, 0, 0, DateTimeKind.Utc);
-        var since = firstLoggedThisMonth is { } first && first > monthStart ? first : monthStart;
+        var since = countingStartedUtc is { } first && first > monthStart ? first : monthStart;
         var elapsed = Math.Max((nowUtc - since).TotalDays, 1.0 / 24);
         var remaining = (monthStart.AddMonths(1) - nowUtc).TotalDays;
         return new RunningCostReport

@@ -148,8 +148,35 @@ public class VaultTests
 
         repo.Purge(now.AddDays(1));
         Assert.Equal(4, repo.Usage(PaidApi.MonthOf(now)).Count);
+        // When counting began does not follow the request log's purge.
+        Assert.Equal(now, repo.CountingStarted()!.Value, TimeSpan.FromSeconds(1));
         Assert.Equal(0.002, PaidApi.Cost(PaidApi.Metrics, 200), 6);
         Assert.Equal(0, PaidApi.Cost(PaidApi.Kms, 2));
+    }
+
+    [Fact]
+    public void Counting_start_of_an_older_vault_is_found_by_counting_back_its_metric_calls()
+    {
+        using var dir = new TempDir();
+        var start = new DateTime(2026, 9, 30, 9, 0, 0, DateTimeKind.Utc);
+        using (var vault = Vault.Create(dir.Path, "pw", "Win+Alt+A"))
+        {
+            var repo = new VaultRepository(vault);
+            // Logged for days before counting existed, then two counted calls.
+            repo.Append(new RequestLogEntry { TimestampUtc = start.AddDays(-5), Profile = "p", Region = "r", Service = "ecs", Operation = "ListClusters", HttpStatus = 200 });
+            for (var i = 0; i < 4; i++)
+                repo.Append(new RequestLogEntry { TimestampUtc = start.AddMinutes(-60 + i * 30), Profile = "p", Region = "r", Service = "cloudwatch", Operation = "GetMetricData", Units = 10, HttpStatus = 200 });
+            // As a version 5 vault saw it: the last two calls counted, no first_ts yet.
+            vault.Execute(c =>
+            {
+                using var cmd = c.CreateCommand();
+                cmd.CommandText = "UPDATE api_usage SET calls = 2, units = 20; ALTER TABLE api_usage DROP COLUMN first_ts; PRAGMA user_version = 5;";
+                cmd.ExecuteNonQuery();
+            });
+        }
+
+        using var reopened = Vault.Open(dir.Path, "pw");
+        Assert.Equal(start, new VaultRepository(reopened).CountingStarted());
     }
 
     [Fact]

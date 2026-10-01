@@ -212,8 +212,8 @@ public interface ICostStore
 public interface IApiUsageStore
 {
     IReadOnlyList<ApiUsageRow> Usage(string fromMonth);
-    /// <summary>The oldest request log entry since <paramref name="sinceUtc"/> (when counting began, for projections).</summary>
-    DateTime? FirstLogged(DateTime sinceUtc);
+    /// <summary>The first paid call ever counted (when counting began, for projections); null before any.</summary>
+    DateTime? CountingStarted();
 }
 
 public interface IRequestLogStore

@@ -353,16 +353,17 @@ public sealed class VaultRepository(Vault vault) :
         foreach (var (meter, units) in PaidApi.Classify(e.Service, e.Operation, e.Parameters, e.Units))
         {
             using var usage = Command(c, """
-                INSERT INTO api_usage (month, profile, region, meter, calls, units) VALUES ($m, $p, $r, $meter, 1, $u)
-                ON CONFLICT (month, profile, region, meter) DO UPDATE SET calls = calls + 1, units = units + $u
-                """, ("$m", PaidApi.MonthOf(e.TimestampUtc)), ("$p", e.Profile ?? ""), ("$r", e.Region ?? ""), ("$meter", meter.Id), ("$u", units));
+                INSERT INTO api_usage (month, profile, region, meter, calls, units, first_ts) VALUES ($m, $p, $r, $meter, 1, $u, $ts)
+                ON CONFLICT (month, profile, region, meter) DO UPDATE SET calls = calls + 1, units = units + $u, first_ts = COALESCE(first_ts, $ts)
+                """, ("$m", PaidApi.MonthOf(e.TimestampUtc)), ("$p", e.Profile ?? ""), ("$r", e.Region ?? ""), ("$meter", meter.Id), ("$u", units),
+                ("$ts", Iso(e.TimestampUtc)));
             usage.ExecuteNonQuery();
         }
     });
 
-    public DateTime? FirstLogged(DateTime sinceUtc) => vault.Execute(c =>
+    public DateTime? CountingStarted() => vault.Execute(c =>
     {
-        using var cmd = Command(c, "SELECT MIN(ts) FROM request_log WHERE ts >= $ts", ("$ts", Iso(sinceUtc)));
+        using var cmd = Command(c, "SELECT MIN(first_ts) FROM api_usage");
         return cmd.ExecuteScalar() is string ts ? DateTime.Parse(ts, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal) : (DateTime?)null;
     });
 

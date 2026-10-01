@@ -24,7 +24,7 @@ public partial class RunningCostView : UserControl
         try
         {
             usage = session.Repository.Usage(PaidApi.MonthOf(monthStart.AddMonths(-12)));
-            first = session.Repository.FirstLogged(monthStart);
+            first = session.Repository.CountingStarted();
         }
         catch
         {

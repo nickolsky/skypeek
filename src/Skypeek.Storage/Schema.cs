@@ -59,6 +59,20 @@ internal static class Schema
             calls INTEGER NOT NULL, units INTEGER NOT NULL,
             PRIMARY KEY (month, profile, region, meter));
         """,
+        // When each counter's first call was made, so "counted since" no longer follows the request log (older than
+        // the counters, and purged). Counters that already exist get the timestamp of their first counted
+        // GetMetricData call, found by counting back their calls in the request log.
+        """
+        ALTER TABLE api_usage ADD COLUMN first_ts TEXT;
+        UPDATE api_usage SET first_ts = (
+            SELECT r.ts FROM (
+                SELECT ts, COALESCE(profile, '') AS p, COALESCE(region, '') AS rg, substr(ts, 1, 7) AS m,
+                       ROW_NUMBER() OVER (PARTITION BY COALESCE(profile, ''), COALESCE(region, ''), substr(ts, 1, 7) ORDER BY ts DESC) AS n
+                FROM request_log
+                WHERE service = 'cloudwatch' AND operation = 'GetMetricData' AND outcome IN (0, 1) AND http_status IS NOT NULL) r
+            WHERE r.p = api_usage.profile AND r.rg = api_usage.region AND r.m = api_usage.month AND r.n = api_usage.calls)
+        WHERE meter = 'cw-metrics';
+        """,
     ];
 
     public static void Migrate(SqliteConnection connection)

@@ -11,10 +11,11 @@
     dist\upload\   every file for the GitHub release (flat; tools\release-github.ps1 uploads it)
     dist\site\     the download page (GitHub Pages)
     dist\releases\ Velopack's release history per channel, kept between runs so updates can be deltas
-  macOS builds are made on a Mac: tools/package-macos.sh.
+  macOS: tools\build-macos.ps1 first builds it on a GitHub macOS runner into dist\macos; this script then signs its
+  feeds and adds its files (or build on a Mac with tools/package-macos.sh).
 
 .EXAMPLE
-  tools\publish.ps1                        # Windows and Linux, version from Skypeek.Desktop.csproj
+  tools\publish.ps1                        # Windows and Linux (and macOS from dist\macos), version from the project
   tools\publish.ps1 -Targets win -Version 1.2.1
   tools\publish.ps1 -SingleFileOnly        # just the single files, no installers or signing (local testing)
   tools\publish.ps1 -UpdateUrl https://downloads.example.com/latest   # feeds and packages hosted elsewhere
@@ -77,7 +78,7 @@ $downloads = [ordered]@{}
 
 foreach ($target in $Targets) {
     $t = $targetInfo[$target]
-    if (-not $t) { throw "Unknown target '$target' (win, linux; macOS: tools/package-macos.sh on a Mac)" }
+    if (-not $t) { throw "Unknown target '$target' (win, linux; macOS: tools\build-macos.ps1)" }
     $rid = $t.Rid
     $build = Join-Path $dist "build\$rid"
     Reset-Dir $build
@@ -137,6 +138,26 @@ foreach ($target in $Targets) {
     $downloads["$target-installer"] = $installer
 }
 
+# macOS: built on a GitHub macOS runner by tools\build-macos.ps1 (dist\macos), with unsigned feeds; signed here.
+$macDir = Join-Path $dist 'macos'
+if (-not $SingleFileOnly) {
+    $macFeeds = @(if (Test-Path $macDir) { Get-ChildItem $macDir -Recurse -Filter 'releases.osx-*.json' })
+    if (-not $macFeeds) { Write-Host 'No macOS build in dist\macos (tools\build-macos.ps1 makes one); the release has none.' }
+    foreach ($macFeed in $macFeeds) {
+        $rid = $macFeed.BaseName -replace '^releases\.', ''
+        $files = Get-ChildItem $macFeed.DirectoryName -File | Where-Object Extension -NE '.sig'
+        if (-not ($files | Where-Object Name -EQ "$packId-$Version-$rid-full.nupkg")) {
+            Write-Warning "dist\macos has no $rid packages for $Version (built for another version?): run tools\build-macos.ps1 -Version $Version"
+            continue
+        }
+        Invoke-Checked "$rid feed signing" { dotnet $releaseTool sign $macFeed.FullName }
+        $files | Copy-Item -Destination $upload
+        Copy-Item "$($macFeed.FullName).sig" $upload
+        $downloads["$rid-installer"] = Join-Path $upload "Skypeek-$rid.pkg"
+        $downloads["$rid-single"] = Join-Path $upload "Skypeek-$rid.zip"
+    }
+}
+
 # Checksums for people who verify downloads by hand.
 $sums = Get-ChildItem $upload -File | Where-Object Name -NE 'SHA256SUMS.txt' | Sort-Object Name | ForEach-Object {
     "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name
@@ -146,6 +167,19 @@ Set-Content (Join-Path $upload 'SHA256SUMS.txt') $sums
 # Download page: links to the latest GitHub release, so it only changes when the layout does.
 function Size($path) { if ($path -and (Test-Path $path)) { '{0:N0} MB' -f ((Get-Item $path).Length / 1MB) } else { '' } }
 function Link($key) { if ($downloads[$key]) { "$updateUrl/$(Split-Path $downloads[$key] -Leaf)" } else { '' } }
+function Button($key, $text, $class) {
+    if ($downloads[$key]) { "<a class=`"btn$class`" href=`"$(Link $key)`">$text <small>$(Size $downloads[$key])</small></a>" }
+}
+$macButtons = @(
+    (Button 'osx-arm64-installer' 'Apple Silicon (.pkg)' ' primary'), (Button 'osx-x64-installer' 'Intel (.pkg)' ''),
+    (Button 'osx-arm64-single' 'Apple Silicon app (.zip)' ''), (Button 'osx-x64-single' 'Intel app (.zip)' '')
+) | Where-Object { $_ }
+$macCard = if ($macButtons) {
+    ($macButtons -join "`n      ") + "`n      <p class=`"note`">The installer keeps Skypeek up to date; the zip holds Skypeek.app to move to Applications. Skypeek lives in the menu bar (no Dock icon). The builds aren't signed by Apple yet: if macOS refuses to open one, go to System Settings → Privacy &amp; Security → Open Anyway.</p>"
+}
+else {
+    "<a class=`"btn`" href=`"$downloadPage`">See the latest release</a>`n      <p class=`"note`">macOS builds are published when available.</p>"
+}
 $page = Get-Content (Join-Path $root 'packaging\site\index.html') -Raw
 $values = @{
     VERSION = $Version; DOWNLOAD_BASE = $updateUrl; RELEASES_PAGE = $downloadPage
@@ -153,6 +187,7 @@ $values = @{
     WIN_SINGLE = (Link 'win-single'); WIN_SINGLE_SIZE = (Size $downloads['win-single'])
     LINUX_INSTALLER = (Link 'linux-installer'); LINUX_INSTALLER_SIZE = (Size $downloads['linux-installer'])
     LINUX_SINGLE = (Link 'linux-single'); LINUX_SINGLE_SIZE = (Size $downloads['linux-single'])
+    MAC_CARD = $macCard
 }
 foreach ($key in $values.Keys) { $page = $page.Replace("{{$key}}", [string]$values[$key]) }
 Set-Content (Join-Path $site 'index.html') $page -NoNewline

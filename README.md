@@ -34,9 +34,9 @@ Downloads are on the [latest release](https://github.com/nickolsky/skypeek/relea
 |---|---|---|
 | Windows | `Skypeek-win-x64-Setup.exe`: per user, no administrator rights; Start menu and desktop shortcuts; uninstall from Settings → Apps | `Skypeek-win-x64.exe`: runs from anywhere, no .NET needed |
 | Linux | `Skypeek-linux-x64.AppImage`: `chmod +x` and run | `Skypeek-linux-x64.tar.gz`: `tar xzf … && sh skypeek-linux-x64/install.sh` installs for the current user (`~/.local/share/skypeek`, a menu entry, `~/.local/bin/skypeek`; `--uninstall` removes it) |
-| macOS | `Skypeek-osx-<arch>.pkg` once a Mac build is published | `Skypeek.app` (zip): move it to Applications |
+| macOS | `Skypeek-osx-arm64.pkg` (Apple Silicon) or `Skypeek-osx-x64.pkg` (Intel) | `Skypeek-osx-<arch>.zip`: `Skypeek.app`, move it to Applications |
 
-Uninstalling keeps the vault. Unsigned macOS builds need **right-click → Open** the first time (or System Settings → Privacy & Security → Open Anyway); it is a menu bar app with no Dock icon. The Windows downloads are not code-signed yet, so SmartScreen may ask to confirm the first start.
+Uninstalling keeps the vault. The macOS builds are not signed by Apple yet: if macOS refuses to open one, use System Settings → Privacy & Security → **Open Anyway** (older macOS: right-click → Open). It is a menu bar app with no Dock icon. The Windows downloads are not code-signed yet, so SmartScreen may ask to confirm the first start.
 
 ### Updates
 
@@ -54,7 +54,11 @@ One-time: create the update signing key. It asks for a password (at least 12 cha
 dotnet run --project tools/Skypeek.ReleaseTool -- keygen
 ```
 
-Each release (Windows, PowerShell 7):
+Each release (Windows, PowerShell 7). First the macOS build, on a GitHub macOS runner (commit and push the version first):
+
+```bash
+pwsh tools/build-macos.ps1 -Version 1.2.1
+```
 
 ```bash
 pwsh tools/publish.ps1 -Version 1.2.1
@@ -68,7 +72,7 @@ pwsh tools/release-github.ps1 -Version 1.2.1
 
 `release-github.ps1` checks the feed signatures, creates the GitHub release `v<version>` with those files and deploys the page to GitHub Pages (`gh-pages` branch, one fresh commit, no binaries: its links point at the latest release). `-Domain downloads.example.com` serves the page on your own domain (DNS: a CNAME record to `nickolsky.github.io`). The update address stays `https://github.com/nickolsky/skypeek/releases/latest/download`, so a domain can be added or changed without rebuilding; `-UpdateUrl` on `publish.ps1` moves feeds and packages elsewhere (then host the files there as well).
 
-For macOS, run `tools/package-macos.sh` on a Mac (the script's comments cover signing and notarization) and add its files from `dist/upload` to the release.
+`build-macos.ps1` runs the **release-mac** workflow (`.github/workflows/release-mac.yml`: `tools/package-macos.sh` for Apple Silicon and Intel) on the pushed commit and downloads its files to `dist\macos`: `Skypeek.app` as a zip, the `.pkg` installer and the update packages, with the feeds unsigned since the release key never leaves your machine. `publish.ps1` then signs those feeds and adds the files to the release and the page. On a Mac, `tools/package-macos.sh` builds the same directly (its comments cover Apple signing and notarization).
 
 The WPF app in `src/Skypeek.App` (Windows only) is the previous UI. It stays in the repository until the Avalonia app has been tried on Windows; both use the same vault.
 

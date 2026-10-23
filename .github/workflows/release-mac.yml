@@ -1,0 +1,38 @@
+# Builds the macOS release on a GitHub macOS runner (Velopack can package for macOS only on macOS): Skypeek.app as a
+# zip, the .pkg installer and the update packages for Apple Silicon and Intel. The update feed stays unsigned here (the
+# release key never leaves the release machine): tools/build-macos.ps1 starts this workflow and downloads the result
+# to dist/macos, and tools/publish.ps1 signs the feeds and adds the files to dist/upload.
+name: release-mac
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version (major.minor.patch), same as the Windows/Linux release
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  mac:
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        arch: [arm64, x64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build Skypeek for osx-${{ matrix.arch }}
+        env:
+          VERSION: ${{ inputs.version }}
+          ARCH: ${{ matrix.arch }}
+          SKIP_FEED_SIGN: '1'
+        run: sh tools/package-macos.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: skypeek-osx-${{ matrix.arch }}
+          path: dist/upload/*
+          if-no-files-found: error

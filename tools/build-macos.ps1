@@ -20,7 +20,9 @@ $out = Join-Path $root 'dist\macos'
 if (-not $Version) {
     $Version = ([xml](Get-Content $project)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
 }
-if (-not $Branch) { $Branch = git -C $root rev-parse --abbrev-ref HEAD }
+# This checkout only (no global safe.directory): the folder may be owned by another account, e.g. Administrators.
+function Git { git -c "safe.directory=$($root.Replace('\', '/'))" -C $root @args }
+if (-not $Branch) { $Branch = Git rev-parse --abbrev-ref HEAD }
 
 function Invoke-Checked([string]$what, [scriptblock]$command) {
     & $command
@@ -28,9 +30,9 @@ function Invoke-Checked([string]$what, [scriptblock]$command) {
 }
 
 # The runner builds what is on GitHub, so that must be what is here.
-Invoke-Checked 'git fetch' { git -C $root fetch -q origin $Branch }
-$local = git -C $root rev-parse HEAD
-$remote = git -C $root rev-parse "origin/$Branch"
+Invoke-Checked 'git fetch' { Git fetch -q origin $Branch }
+$local = Git rev-parse HEAD
+$remote = Git rev-parse "origin/$Branch"
 if ($local -ne $remote) { throw "HEAD ($($local.Substring(0, 7))) is not what origin/$Branch has ($($remote.Substring(0, 7))): push first." }
 
 $started = [DateTime]::UtcNow.AddSeconds(-5)
